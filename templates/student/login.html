@@ -1,0 +1,149 @@
+﻿{% extends "layout/student_base.html" %}
+
+{% block title %}
+Student Inquiry
+{% endblock %}
+
+{% block content %}
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-7">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary text-white text-center py-4">
+                    <h2 class="mb-0">Student Inquiry</h2>
+                </div>
+                <div class="card-body text-center p-5">
+                    <img src="{{ url_for('static', filename='images/rfid.png') }}" width="170" class="mb-4">
+                    <h3 class="fw-bold">Please Tap Your Student ID</h3>
+                    <p id="status" class="text-muted fs-5">Waiting for RFID card...</p>
+                    <input type="text" id="student_id" autocomplete="off" style="position:absolute; left:-9999px; width:1px; height:1px; opacity:0;">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script>
+window.addEventListener("load", function() {
+    const rfidInput = document.getElementById("student_id");
+    const statusElement = document.getElementById("status");
+    let scanBuffer = "";
+    let scanTimeout = null;
+    const SCAN_DEBOUNCE = 250;
+    const SCAN_MIN_DIGITS = 6;
+
+    function focusHiddenInput() {
+        if (rfidInput) {
+            rfidInput.focus();
+        }
+    }
+
+    function setStatus(message, cssClass) {
+        statusElement.textContent = message;
+        statusElement.className = cssClass;
+    }
+
+    function verifyRFID(showAlert = true) {
+        const value = rfidInput.value.trim();
+        if (!value) {
+            if (showAlert) {
+                alert("Please scan a student ID.");
+            }
+            focusHiddenInput();
+            return;
+        }
+
+        fetch("/verify-rfid", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ student_id: value })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                window.location = "/student-dashboard";
+            } else {
+                if (showAlert) {
+                    alert("RFID not registered.");
+                }
+                setStatus("Waiting for RFID card...", "text-muted fs-5");
+                rfidInput.value = "";
+                focusHiddenInput();
+            }
+        })
+        .catch(error => {
+            console.error("verifyRFID error", error);
+            if (showAlert) {
+                alert("Unable to verify RFID. Please try again.");
+            }
+            setStatus("Waiting for RFID card...", "text-muted fs-5");
+            rfidInput.value = "";
+            focusHiddenInput();
+        });
+    }
+
+    focusHiddenInput();
+    setInterval(focusHiddenInput, 500);
+
+    rfidInput.addEventListener("change", function() {
+        verifyRFID(false);
+    });
+
+    rfidInput.addEventListener("keydown", function(event) {
+        if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            verifyRFID(true);
+        }
+    });
+
+    window.addEventListener("keydown", function(e) {
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+            return;
+        }
+
+        if (e.key.length === 1) {
+            scanBuffer += e.key;
+            if (scanTimeout) clearTimeout(scanTimeout);
+            scanTimeout = setTimeout(function() {
+                const digits = scanBuffer.replace(/\D/g, '').trim();
+                const raw = scanBuffer.trim();
+                if (digits.length >= SCAN_MIN_DIGITS) {
+                    rfidInput.value = digits;
+                    verifyRFID(false);
+                } else if (raw.length >= SCAN_MIN_DIGITS) {
+                    rfidInput.value = raw;
+                    verifyRFID(false);
+                }
+                scanBuffer = "";
+                scanTimeout = null;
+            }, SCAN_DEBOUNCE);
+        }
+
+        if (e.key === "Enter") {
+            const value = scanBuffer.trim() || rfidInput.value.trim();
+            if (value) {
+                rfidInput.value = value;
+                verifyRFID(true);
+            }
+            scanBuffer = "";
+            if (scanTimeout) { clearTimeout(scanTimeout); scanTimeout = null; }
+            e.preventDefault();
+        }
+    });
+
+    window.addEventListener('paste', function(e) {
+        const text = (e.clipboardData || window.clipboardData).getData('text').trim();
+        if (text) {
+            rfidInput.value = text;
+            verifyRFID(true);
+        }
+    });
+});
+</script>
+
+{% endblock %}

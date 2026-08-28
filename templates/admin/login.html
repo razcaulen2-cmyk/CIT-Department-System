@@ -1,0 +1,114 @@
+{% extends "layout/admin_base.html" %}
+
+{% block title %}
+Admin Login
+{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center mt-5">
+
+    <div class="col-md-5">
+
+        <div class="card shadow">
+
+            <div class="card-header bg-dark text-white">
+                <h3 class="mb-0">Admin Login</h3>
+            </div>
+
+            <div class="card-body">
+
+                <form method="POST" id="adminLoginForm">
+
+                    {% if error %}
+                    <div class="alert alert-danger">{{ error }}</div>
+                    {% endif %}
+
+                    <div class="mb-3">
+
+                        <label class="form-label">
+                            Username
+                        </label>
+
+                        <input
+                            type="text"
+                            name="username"
+                            class="form-control"
+                            placeholder="Enter Username">
+
+                    </div>
+
+                    <div class="mb-3">
+
+                        <label class="form-label">
+                            Password
+                        </label>
+
+                        <input
+                            type="password"
+                            name="password"
+                            class="form-control"
+                            placeholder="Enter Password">
+
+                    </div>
+
+                    <button
+                        type="submit"
+                        class="btn btn-secondary w-100">
+
+                        Login
+
+                    </button>
+
+                </form>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+document.getElementById('adminLoginForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = this;
+    const data = {
+        username: form.username.value,
+        password: form.password.value
+    };
+    
+    fetch('/admin-login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(j => {
+        if(j.success) {
+            window.location = j.redirect || '/admin-dashboard';
+        } else {
+            // Clear form and show error
+            form.reset();
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger';
+            errorDiv.textContent = j.message || 'Invalid Username or Password';
+            form.parentElement.insertBefore(errorDiv, form);
+        }
+    })
+    .catch(() => {
+        form.reset();
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'alert alert-danger';
+        errorDiv.textContent = 'Network error. Please try again.';
+        form.parentElement.insertBefore(errorDiv, form);
+    });
+});
+</script>
+
+{% endblock %}

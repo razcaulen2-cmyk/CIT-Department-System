@@ -1,0 +1,72 @@
+{% extends "layout/public_base.html" %}
+
+{% block title %}
+Home
+{% endblock %}
+
+{% block content %}
+
+<div class="hero-card">
+    <div class="hero-content">
+        <div class="hero-copy">
+            <p class="eyebrow">CIT Dept System</p>
+            <h1>Simple oversight for every student and every transaction.</h1>
+            <p class="hero-text">A polished, minimal experience for student inquiry and administrative control.</p>
+            <div class="hero-actions">
+                <button id="studentInquiryBtn" class="btn btn-dark rounded-pill px-4">Student Inquiry</button>
+                <button id="adminLoginBtn" class="btn btn-outline-dark rounded-pill px-4">Admin Login</button>
+            </div>
+        </div>
+        <div class="hero-logo">
+            <img src="{{ url_for('static', filename='images/cit-logo.png') }}" alt="CIT Logo">
+        </div>
+    </div>
+</div>
+
+<!-- Modal container -->
+<div id="globalModalContainer"></div>
+
+    <script>
+        function showModal(html){
+            const container = document.getElementById('globalModalContainer');
+            container.innerHTML = `
+            <div class="modal fade" id="globalModal" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">${html}</div>
+                </div>
+            </div>`;
+
+            // Execute any inline scripts contained in the returned HTML
+            const modalEl = document.getElementById('globalModal');
+            // Move scripts out and re-insert so they execute
+            const scripts = modalEl.querySelectorAll('script');
+            scripts.forEach((s) => {
+                const newScript = document.createElement('script');
+                if (s.src) {
+                    newScript.src = s.src;
+                } else {
+                    newScript.textContent = s.textContent;
+                }
+                s.parentNode.removeChild(s);
+                modalEl.querySelector('.modal-content').appendChild(newScript);
+            });
+
+            var modal = new bootstrap.Modal(modalEl);
+            modal.show();
+            // Focus first input if present
+            setTimeout(()=>{
+                const firstInput = modalEl.querySelector('input, button, textarea, select');
+                if(firstInput) firstInput.focus();
+            },200);
+        }
+
+        document.getElementById('adminLoginBtn').addEventListener('click', function(){
+            fetch('/admin-login?modal=1').then(r=>r.text()).then(html=>{ showModal(html); });
+        });
+
+        document.getElementById('studentInquiryBtn').addEventListener('click', function(){
+            fetch('/student-login?modal=1').then(r=>r.text()).then(html=>{ showModal(html); });
+        });
+        </script>
+
+{% endblock %}

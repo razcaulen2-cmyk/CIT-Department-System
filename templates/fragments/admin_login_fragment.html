@@ -1,0 +1,56 @@
+<div>
+    <div class="modal-header">
+        <h3 class="mb-0">Admin Login</h3>
+    </div>
+    <div class="modal-body">
+        <form id="adminModalForm">
+            <div id="adminErrorPlaceholder">
+                {% if error %}
+                <div class="alert alert-danger">{{ error }}</div>
+                {% endif %}
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Username</label>
+                <input type="text" name="username" class="form-control" placeholder="Enter Username">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-control" placeholder="Enter Password">
+            </div>
+        </form>
+    </div>
+    <div class="modal-footer">
+        <button type="submit" form="adminModalForm" class="btn btn-secondary w-100">Login</button>
+    </div>
+</div>
+<script>
+(function(){
+    const form = document.getElementById('adminModalForm');
+    const errorPlaceholder = document.getElementById('adminErrorPlaceholder');
+    form.addEventListener('submit', function(e){
+        e.preventDefault();
+        // remove previous messages
+        errorPlaceholder.innerHTML = '';
+        const data = { username: form.username.value, password: form.password.value };
+        fetch('/admin-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With':'XMLHttpRequest' },
+            body: JSON.stringify(data)
+        }).then(r=>r.json()).then(j=>{
+            if(j.success){
+                window.location = j.redirect || '/admin-dashboard';
+            } else {
+                const alertBox = document.createElement('div');
+                alertBox.className = 'alert alert-danger';
+                alertBox.textContent = j.message || 'Invalid Username or Password';
+                errorPlaceholder.appendChild(alertBox);
+            }
+        }).catch(()=>{
+            const alertBox = document.createElement('div');
+            alertBox.className = 'alert alert-danger';
+            alertBox.textContent = 'Network error';
+            errorPlaceholder.appendChild(alertBox);
+        });
+    });
+})();
+</script>

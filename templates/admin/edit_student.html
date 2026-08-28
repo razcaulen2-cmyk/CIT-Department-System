@@ -1,0 +1,36 @@
+﻿{% extends "layout/admin_base.html" %}
+
+{% block title %}
+Edit Student
+{% endblock %}
+
+{% block content %}
+
+<h2>Edit Student</h2>
+
+<form method="post">
+    <div class="mb-3">
+        <label class="form-label">First Name</label>
+        <input type="text" name="firstname" class="form-control" value="{{ student.firstname }}" required>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Last Name</label>
+        <input type="text" name="lastname" class="form-control" value="{{ student.lastname }}" required>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Course</label>
+        <input type="text" name="course" class="form-control" value="{{ student.course }}" required>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Year Level</label>
+        <input type="text" name="year_level" class="form-control" value="{{ student.year_level }}" required>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a href="/students" class="btn btn-secondary">Cancel</a>
+</form>
+
+{% endblock %}

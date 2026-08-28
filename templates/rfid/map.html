@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="card">
+
+    <div class="card-header">
+
+        RFID Mapping
+
+    </div>
+
+    <div class="card-body">
+
+        <h4>
+
+            {{ student.firstname|upper }}
+            {{ student.lastname|upper }}
+
+        </h4>
+
+        <form method="POST">
+
+            <label>
+
+                Tap School ID
+
+            </label>
+
+            <input
+                type="text"
+                name="student_id"
+                class="form-control"
+                autofocus
+                required>
+
+            <br>
+
+            <button
+                class="btn btn-secondary">
+
+                Save RFID
+
+            </button>
+
+        </form>
+
+    </div>
+
+</div>
+
+{% endblock %}

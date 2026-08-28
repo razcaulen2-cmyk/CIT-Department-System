@@ -1,0 +1,538 @@
+{% extends "layout/admin_base.html" %}
+
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <div class="eyebrow">FINANCE</div>
+        <h1>Payments & Transactions</h1>
+        <p>Process student payments and view transaction history.</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-dark rounded-pill px-4" onclick="openStudentTapModal()">
+            <i class="bi bi-qr-code"></i> Tap Student ID
+        </button>
+    </div>
+</div>
+
+<!-- Student Balance Section -->
+<div class="balance-section">
+    <div id="balanceCard" class="balance-card" style="display: none;">
+        <div class="balance-info">
+            <div class="student-details">
+                <h3 id="balanceStudentName">-</h3>
+                <p id="balanceStudentInfo" class="text-muted">-</p>
+            </div>
+            
+            <div class="balance-amounts">
+                <div class="balance-item">
+                    <div class="balance-label">Funds Balance</div>
+                    <div class="balance-value" id="balanceFunds">PHP 0.00</div>
+                </div>
+                <div class="balance-item">
+                    <div class="balance-label">Fines Balance</div>
+                    <div class="balance-value" id="balanceFines">PHP 0.00</div>
+                </div>
+                <div class="balance-item total">
+                    <div class="balance-label">Total Balance</div>
+                    <div class="balance-value" id="balanceTotal">PHP 0.00</div>
+                </div>
+            </div>
+            
+            <button class="btn btn-dark" onclick="openPaymentModal()" id="proceedBtn">
+                Proceed to Payment
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Transactions Section -->
+<div class="transactions-section">
+    <h2>Recent Transactions</h2>
+    <div class="transactions-container">
+        <table class="transactions-table">
+            <thead>
+                <tr>
+                    <th>Date & Time</th>
+                    <th>Student</th>
+                    <th>Type</th>
+                    <th>Payment Type</th>
+                    <th>Amount</th>
+                    <th>Academic Year</th>
+                    <th>Semester</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if transactions %}
+                    {% for tx in transactions %}
+                    <tr>
+                        <td class="text-muted">{{ tx.transaction_date.strftime('%b %d, %Y %I:%M %p') if tx.transaction_date else '-' }}</td>
+                        <td class="fw-600">{{ tx.firstname }} {{ tx.lastname }}</td>
+                        <td>
+                            <span class="badge {% if tx.transaction_type == 'Funds' %}badge-funds{% else %}badge-fines{% endif %}">
+                                {{ tx.transaction_type }}
+                            </span>
+                        </td>
+                        <td>{{ tx.payment_type }}</td>
+                        <td class="amount">PHP {{ "%.2f"|format(tx.amount) }}</td>
+                        <td>{{ tx.academic_year }}</td>
+                        <td>{{ tx.semester }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center text-muted">No transactions yet</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Student Tap Modal -->
+<div class="modal fade" id="studentTapModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Tap Student ID</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Tap the student's ID card or scan their QR code:</p>
+                <input type="text" id="tapStudentId" class="form-control form-control-lg" placeholder="Student ID" autofocus>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-dark" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Payment Modal -->
+<div class="modal fade" id="paymentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Process Payment</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="student-header mb-4">
+                    <p class="mb-1"><strong id="paymentStudentName">Student Name</strong></p>
+                    <p id="paymentStudentDetails" class="text-muted">Student ID</p>
+                </div>
+
+                <form id="paymentForm">
+                    <div class="mb-3">
+                        <label for="transactionType" class="form-label">Type of Transaction</label>
+                        <select id="transactionType" class="form-select" required onchange="updateAmountField()">
+                            <option value="">Select Type</option>
+                            <option value="Funds">Funds</option>
+                            <option value="Fines">Fines</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="paymentType" class="form-label">Payment Type</label>
+                        <select id="paymentType" class="form-select" required onchange="updateAmountField()">
+                            <option value="">Select Payment Type</option>
+                            <option value="Partial">Partial Payment</option>
+                            <option value="Full">Full Payment</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="amount" class="form-label">Amount</label>
+                        <div class="input-group">
+                            <span class="input-group-text">PHP</span>
+                            <input type="number" id="amount" class="form-control" placeholder="0.00" step="0.01" required>
+                        </div>
+                        <small id="maxAmount" class="text-muted"></small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="academicYear" class="form-label">Academic Year</label>
+                        <select id="academicYear" class="form-select" required>
+                            <option value="">Select Year</option>
+                            {% for year in academic_years %}
+                            <option value="{{ year }}">{{ year }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="semester" class="form-label">Semester</label>
+                        <select id="semester" class="form-select" required>
+                            <option value="">Select Semester</option>
+                            {% for sem in semesters %}
+                            <option value="{{ sem }}">{{ sem }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-dark" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-dark" onclick="submitPayment()">Submit Payment</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.balance-section {
+    display: grid;
+    gap: 28px;
+    background: #111111;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 24px;
+    padding: 30px;
+    margin-bottom: 32px;
+}
+
+.balance-card {
+    margin-top: 24px;
+    padding: 28px;
+    background: #141414;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 22px;
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.balance-info {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 32px;
+    align-items: start;
+}
+
+.student-details h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.8rem;
+    color: var(--text);
+}
+
+.student-details p {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+}
+
+.balance-amounts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.balance-item {
+    padding: 20px;
+    background: #181818;
+    color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    text-align: center;
+}
+
+.balance-item.total {
+    grid-column: 1 / -1;
+    border: 1px solid var(--line);
+    background: rgba(212, 175, 55, 0.08);
+}
+
+.balance-label {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+}
+
+.balance-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+}
+
+.transactions-container {
+    overflow-x: auto;
+}
+
+.transactions-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 10px;
+}
+
+.transactions-table thead {
+    background: rgba(212, 175, 55, 0.08);
+}
+
+.transactions-table th {
+    padding: 14px 16px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid rgba(212, 175, 55, 0.12);
+}
+
+.transactions-table tbody tr {
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.transactions-table tbody tr:hover {
+    background-color: rgba(212, 175, 55, 0.08);
+}
+
+.transactions-table td {
+    padding: 14px 16px;
+    color: var(--text);
+}
+
+.fw-600 {
+    font-weight: 700;
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
+.amount {
+    text-align: right;
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+}
+
+.badge {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.badge-funds {
+    background-color: rgba(29, 120, 65, 0.14);
+    color: #a5d6a7;
+}
+
+.badge-fines {
+    background-color: rgba(183, 28, 28, 0.14);
+    color: #ff8a80;
+}
+
+.modal-content {
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+    background: #111111;
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.modal-title {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.form-control-lg {
+    padding: 14px 16px;
+    font-size: 1.05rem;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: #141414;
+    color: var(--text);
+}
+
+.form-control-lg:focus,
+.form-select:focus {
+    border-color: var(--line);
+    box-shadow: 0 0 0 0.2rem rgba(212, 175, 55, 0.25);
+}
+
+.form-label {
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text);
+}
+
+.form-select {
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    padding: 10px 14px;
+    background: #141414;
+    color: var(--text);
+}
+
+.input-group-text {
+    background: #141414;
+    color: var(--text);
+    border: 1px solid var(--line-soft);
+}
+
+.input-group .form-control {
+    border: 1px solid var(--line-soft);
+    background: #141414;
+    color: var(--text);
+}
+
+.student-header {
+    padding: 16px;
+    background: rgba(212, 175, 55, 0.06);
+    border-radius: 16px;
+}
+
+.student-header p {
+    margin: 0;
+}
+
+.text-center {
+    text-align: center;
+}
+</style>
+
+<script>
+let currentStudent = null;
+let studentTapModal = null;
+let paymentModal = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    studentTapModal = new bootstrap.Modal(document.getElementById('studentTapModal'));
+    paymentModal = new bootstrap.Modal(document.getElementById('paymentModal'));
+});
+
+function openStudentTapModal() {
+    document.getElementById('tapStudentId').value = '';
+    studentTapModal.show();
+    document.getElementById('tapStudentId').focus();
+}
+
+function openPaymentModal() {
+    paymentModal.show();
+}
+
+document.getElementById('tapStudentId').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        const studentId = this.value.trim();
+        if (studentId) {
+            fetchAndDisplayBalance(studentId);
+        }
+    }
+});
+
+function fetchAndDisplayBalance(studentId) {
+    fetch(`/api/student-balance/${studentId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Student not found');
+            }
+            return response.json();
+        })
+        .then(data => {
+            currentStudent = data;
+            displayBalance(data);
+            studentTapModal.hide();
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+}
+
+function displayBalance(data) {
+    document.getElementById('balanceStudentName').textContent = `${data.firstname} ${data.lastname}`;
+    document.getElementById('balanceStudentInfo').textContent = `${data.student_id} • ${data.course} • Year ${data.year_level}`;
+    document.getElementById('balanceFunds').textContent = `PHP ${parseFloat(data.total_funds).toFixed(2)}`;
+    document.getElementById('balanceFines').textContent = `PHP ${parseFloat(data.total_fines).toFixed(2)}`;
+    document.getElementById('balanceTotal').textContent = `PHP ${parseFloat(data.total_balance).toFixed(2)}`;
+    document.getElementById('balanceCard').style.display = 'block';
+    
+    // Update payment form header
+    document.getElementById('paymentStudentName').textContent = `${data.firstname} ${data.lastname}`;
+    document.getElementById('paymentStudentDetails').textContent = data.student_id;
+}
+
+function updateAmountField() {
+    const paymentType = document.getElementById('paymentType').value;
+    const transactionType = document.getElementById('transactionType').value;
+    const amountField = document.getElementById('amount');
+    
+    if (paymentType === 'Full' && currentStudent && transactionType) {
+        // Auto-fill the amount based on balance type
+        const amount = transactionType === 'Funds' 
+            ? currentStudent.total_funds 
+            : currentStudent.total_fines;
+        amountField.value = amount.toFixed(2);
+        amountField.disabled = true;
+        
+        // Show max amount info
+        const maxAmountEl = document.getElementById('maxAmount');
+        maxAmountEl.textContent = `Full amount for ${transactionType}: PHP ${amount.toFixed(2)}`;
+    } else {
+        amountField.disabled = false;
+        amountField.value = '';
+        document.getElementById('maxAmount').textContent = '';
+    }
+}
+
+function submitPayment() {
+    if (!currentStudent) {
+        alert('Please tap a student ID first');
+        return;
+    }
+    
+    const formData = {
+        student_id: currentStudent.student_id,
+        transaction_type: document.getElementById('transactionType').value,
+        payment_type: document.getElementById('paymentType').value,
+        amount: document.getElementById('amount').value,
+        academic_year: document.getElementById('academicYear').value,
+        semester: document.getElementById('semester').value
+    };
+    
+    // Validate
+    if (!formData.transaction_type || !formData.payment_type || !formData.amount || !formData.academic_year || !formData.semester) {
+        alert('Please fill in all fields');
+        return;
+    }
+    
+    fetch('/api/process-payment', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            alert('Payment recorded successfully!\n' + data.message);
+            paymentModal.hide();
+            location.reload();
+        }
+    })
+    .catch(error => {
+        alert('Error processing payment: ' + error.message);
+    });
+}
+</script>
+
+{% endblock %}

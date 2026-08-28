@@ -1,0 +1,498 @@
+{% extends "layout/admin_base.html" %}
+
+{% block title %}
+Events
+{% endblock %}
+
+{% block page_title %}
+Events
+{% endblock %}
+
+{% block content %}
+
+<div class="container-fluid">
+
+    <div class="panel-intro mb-4">
+        <div>
+            <p class="eyebrow">EVENTS</p>
+            <h3 class="mb-1">Create and manage events</h3>
+            <p class="text-muted mb-0">Events drive attendance and fines. Create an event to start taking attendance.</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header">Create Event</div>
+                <div class="card-body event-card-body">
+                    <form action="/events/create" method="post" id="eventForm">
+                        <div class="row gx-3 gy-3">
+                            <div class="col-12">
+                                <label class="form-label">Event Name</label>
+                                <input name="name" class="form-control" required />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Date</label>
+                                <input type="date" name="date" class="form-control" required />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Absent Fine</label>
+                                <input type="number" min="0" step="0.01" name="absent_fine" class="form-control" value="0.00" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Late Fine</label>
+                                <input type="number" min="0" step="0.01" name="late_fine" class="form-control" value="0.00" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Log-in <input type="checkbox" id="loginEnabled" name="login_enabled" class="ms-2" checked /></label>
+                                <input type="time" name="login_time" id="loginTime" class="form-control" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Log-out <input type="checkbox" id="logoutEnabled" name="logout_enabled" class="ms-2" checked /></label>
+                                <input type="time" name="logout_time" id="logoutTime" class="form-control" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Log-in cutoff</label>
+                                <input type="text" class="form-control readonly-field" id="loginCutoffDisplay" readonly placeholder="Auto calculated" />
+                                <input type="hidden" name="login_cutoff_time" id="loginCutoff" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Log-out cutoff</label>
+                                <input type="text" class="form-control readonly-field" id="logoutCutoffDisplay" readonly placeholder="Auto calculated" />
+                                <input type="hidden" name="logout_cutoff_time" id="logoutCutoff" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Grace Period (mins)</label>
+                                <input type="number" min="0" name="grace_period" id="gracePeriod" class="form-control" value="0" />
+                            </div>
+                            <div class="col-12 d-flex flex-column flex-sm-row align-items-stretch gap-3 mt-2">
+                                <div class="form-check d-flex align-items-center mb-2 mb-sm-0">
+                                    <input class="form-check-input" type="checkbox" name="is_active" id="is_active">
+                                    <label class="form-check-label ms-2 mb-0" for="is_active">Set as active/ongoing</label>
+                                </div>
+                                <button class="btn btn-primary ms-auto px-4">Create event</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header">Existing Events</div>
+                <div class="card-body">
+                    {% if request.args.get('delete_error') == 'invalid' %}
+                    <div class="alert alert-danger">Invalid admin credentials. Event was not deleted.</div>
+                    {% endif %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Name</th>
+                                    <th>Absent Fine</th>
+                                    <th>Late Fine</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ev in events %}
+                                <tr class="event-row" data-event-id="{{ ev.id }}" data-event-name="{{ ev.name }}" data-event-date="{{ ev.date }}" data-event-login="{{ ev.login_time or '' }}" data-event-logout="{{ ev.logout_time or '' }}" data-event-login-cutoff="{{ ev.login_cutoff_time or '' }}" data-event-logout-cutoff="{{ ev.logout_cutoff_time or '' }}" data-event-grace="{{ ev.grace_period or 0 }}" data-event-absent="{{ ev.absent_fine or '0.00' }}" data-event-late="{{ ev.late_fine or '0.00' }}">
+                                    <td>{{ ev.date }}</td>
+                                    <td>{{ ev.name }}</td>
+                                    <td>₱{{ ev.absent_fine or '0.00' }}</td>
+                                    <td>₱{{ ev.late_fine or '0.00' }}</td>
+                                    <td class="text-end">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary edit-event-btn me-2">Edit</button>
+                                        <a href="/events/{{ ev.id }}/conduct" data-conduct-url="/events/{{ ev.id }}/conduct" class="btn btn-sm btn-outline-primary conduct-btn">Conduct</a>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="5" class="text-muted">No events yet</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Edit Event Modal -->
+                    <div class="modal fade" id="editEventModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-lg modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Edit Event</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <form id="editEventForm" method="post" action="">
+                                    <div class="modal-body">
+                                        <input type="hidden" name="event_id" id="editEventId" />
+                                        <div class="row">
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Event Name</label>
+                                                <input type="text" name="name" id="editEventName" class="form-control" required />
+                                            </div>
+                                            <div class="col-md-3 mb-3">
+                                                <label class="form-label">Date</label>
+                                                <input type="date" name="date" id="editEventDate" class="form-control" required />
+                                            </div>
+                                            <div class="col-md-3 mb-3">
+                                                <label class="form-label">Grace Period (mins)</label>
+                                                <input type="number" min="0" name="grace_period" id="editGracePeriod" class="form-control" />
+                                            </div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-3 mb-3">
+                                                <label class="form-label">Log-in <input type="checkbox" id="editLoginEnabled" name="login_enabled" class="ms-2" /></label>
+                                                <input type="time" name="login_time" id="editLoginTime" class="form-control" />
+                                            </div>
+                                            <div class="col-md-3 mb-3">
+                                                <label class="form-label">Log-out <input type="checkbox" id="editLogoutEnabled" name="logout_enabled" class="ms-2" /></label>
+                                                <input type="time" name="logout_time" id="editLogoutTime" class="form-control" />
+                                            </div>
+                                            <div class="col-md-3 mb-3">
+                                                <label class="form-label">Absent Fine</label>
+                                                <input type="number" min="0" step="0.01" name="absent_fine" id="editAbsentFine" class="form-control" />
+                                            </div>
+                                            <div class="col-md-3 mb-3">
+                                                <label class="form-label">Late Fine</label>
+                                                <input type="number" min="0" step="0.01" name="late_fine" id="editLateFine" class="form-control" />
+                                            </div>
+                                        </div>
+                                        <div class="row">
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Log-in cutoff</label>
+                                                <input type="text" class="form-control" id="editLoginCutoffDisplay" readonly placeholder="Auto calculated" />
+                                                <input type="hidden" name="login_cutoff_time" id="editLoginCutoff" />
+                                            </div>
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">Log-out cutoff</label>
+                                                <input type="text" class="form-control" id="editLogoutCutoffDisplay" readonly placeholder="Auto calculated" />
+                                                <input type="hidden" name="logout_cutoff_time" id="editLogoutCutoff" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer d-flex justify-content-between">
+                                        <button type="button" id="openDeleteEventModal" class="btn btn-danger">Delete</button>
+                                        <button type="submit" class="btn btn-primary">Save changes</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Delete Event Confirmation Modal -->
+                    <div class="modal fade" id="deleteEventModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Confirm Delete Event</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <form id="deleteEventForm" method="post" action="">
+                                    <div class="modal-body">
+                                        <p class="text-danger">To delete this event and all associated attendance and fines, please re-enter your admin credentials.</p>
+                                        <div id="deleteEventErrorPlaceholder"></div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Admin Username</label>
+                                            <input type="text" name="delete_username" id="deleteUsername" class="form-control" required />
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label">Admin Password</label>
+                                            <input type="password" name="delete_password" id="deletePassword" class="form-control" required />
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="submit" class="btn btn-danger">Delete</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const loginTimeInput = document.getElementById('loginTime');
+        const logoutTimeInput = document.getElementById('logoutTime');
+        const gracePeriodInput = document.getElementById('gracePeriod');
+        const loginCutoffInput = document.getElementById('loginCutoff');
+        const logoutCutoffInput = document.getElementById('logoutCutoff');
+        const loginCutoffDisplay = document.getElementById('loginCutoffDisplay');
+        const logoutCutoffDisplay = document.getElementById('logoutCutoffDisplay');
+
+        function calculateCutoff(timeValue, graceMinutes) {
+            if (!timeValue) {
+                return '';
+            }
+            const [hours, minutes] = timeValue.split(':').map(Number);
+            const date = new Date();
+            date.setHours(hours, minutes, 0, 0);
+            date.setMinutes(date.getMinutes() + graceMinutes);
+            return date.toTimeString().slice(0, 5);
+        }
+
+        function updateCutoffTimes() {
+            const grace = parseInt(gracePeriodInput.value, 10) || 0;
+            const login = loginTimeInput.value;
+            const logout = logoutTimeInput.value;
+
+            const loginCutoff = calculateCutoff(login, grace);
+            const logoutCutoff = calculateCutoff(logout, grace);
+
+            if (loginCutoffInput) loginCutoffInput.value = loginCutoff;
+            if (logoutCutoffInput) logoutCutoffInput.value = logoutCutoff;
+            if (loginCutoffDisplay) loginCutoffDisplay.value = loginCutoff || '--:--';
+            if (logoutCutoffDisplay) logoutCutoffDisplay.value = logoutCutoff || '--:--';
+        }
+
+        function updateEditCutoffTimes() {
+            const grace = parseInt(document.getElementById('editGracePeriod').value, 10) || 0;
+            const login = document.getElementById('editLoginTime').value;
+            const logout = document.getElementById('editLogoutTime').value;
+
+            const loginCutoff = calculateCutoff(login, grace);
+            const logoutCutoff = calculateCutoff(logout, grace);
+
+            document.getElementById('editLoginCutoff').value = loginCutoff;
+            document.getElementById('editLogoutCutoff').value = logoutCutoff;
+            document.getElementById('editLoginCutoffDisplay').value = loginCutoff || '--:--';
+            document.getElementById('editLogoutCutoffDisplay').value = logoutCutoff || '--:--';
+        }
+
+        function parseEventDatetime(dateValue, timeValue) {
+            if (!dateValue || !timeValue) {
+                return null;
+            }
+            const timeParts = timeValue.split(':').slice(0, 2);
+            if (timeParts.length < 2) {
+                return null;
+            }
+            const normalizedTime = `${timeParts[0].padStart(2, '0')}:${timeParts[1].padStart(2, '0')}`;
+            const dateString = `${dateValue}T${normalizedTime}:00`;
+            const parsed = new Date(dateString);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+        }
+
+        function addMinutesToDate(dateValue, timeValue, minutes) {
+            const base = parseEventDatetime(dateValue, timeValue);
+            if (!base || Number.isNaN(minutes)) {
+                return null;
+            }
+            const result = new Date(base);
+            result.setMinutes(result.getMinutes() + Number(minutes));
+            return result;
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            updateCutoffTimes();
+
+            loginTimeInput?.addEventListener('input', updateCutoffTimes);
+            logoutTimeInput?.addEventListener('input', updateCutoffTimes);
+            gracePeriodInput?.addEventListener('input', updateCutoffTimes);
+
+            const loginEnabledCheckbox = document.getElementById('loginEnabled');
+            const logoutEnabledCheckbox = document.getElementById('logoutEnabled');
+
+            function toggleLoginEnabled() {
+                const enabled = loginEnabledCheckbox?.checked;
+                if (!loginTimeInput) return;
+                loginTimeInput.disabled = !enabled;
+                loginTimeInput.required = !!enabled;
+                if (!enabled) {
+                    loginTimeInput.value = '';
+                    if (loginCutoffInput) loginCutoffInput.value = '';
+                    if (loginCutoffDisplay) loginCutoffDisplay.value = '--:--';
+                }
+            }
+
+            function toggleLogoutEnabled() {
+                const enabled = logoutEnabledCheckbox?.checked;
+                if (!logoutTimeInput) return;
+                logoutTimeInput.disabled = !enabled;
+                logoutTimeInput.required = !!enabled;
+                if (!enabled) {
+                    logoutTimeInput.value = '';
+                    if (logoutCutoffInput) logoutCutoffInput.value = '';
+                    if (logoutCutoffDisplay) logoutCutoffDisplay.value = '--:--';
+                }
+            }
+
+            loginEnabledCheckbox?.addEventListener('change', () => { toggleLoginEnabled(); updateCutoffTimes(); });
+            logoutEnabledCheckbox?.addEventListener('change', () => { toggleLogoutEnabled(); updateCutoffTimes(); });
+            toggleLoginEnabled();
+            toggleLogoutEnabled();
+
+            const editEventModalEl = document.getElementById('editEventModal');
+            const deleteEventModalEl = document.getElementById('deleteEventModal');
+            const editEventModal = editEventModalEl ? new bootstrap.Modal(editEventModalEl) : null;
+            const deleteEventModal = deleteEventModalEl ? new bootstrap.Modal(deleteEventModalEl) : null;
+            const deleteEventForm = document.getElementById('deleteEventForm');
+            const deleteEventErrorPlaceholder = document.getElementById('deleteEventErrorPlaceholder');
+
+            function fillEditModal(row) {
+                const eventId = row.dataset.eventId;
+                const eventName = row.dataset.eventName;
+                const eventDate = row.dataset.eventDate;
+                const loginValue = row.dataset.eventLogin || '';
+                const logoutValue = row.dataset.eventLogout || '';
+                const loginCutoff = row.dataset.eventLoginCutoff || '';
+                const logoutCutoff = row.dataset.eventLogoutCutoff || '';
+                const grace = row.dataset.eventGrace || '0';
+                const absent = row.dataset.eventAbsent || '0.00';
+                const late = row.dataset.eventLate || '0.00';
+
+                document.getElementById('editEventForm').action = `/events/${eventId}/edit`;
+                deleteEventForm.action = `/events/${eventId}/delete`;
+                document.getElementById('editEventId').value = eventId;
+                document.getElementById('editEventName').value = eventName;
+                document.getElementById('editEventDate').value = eventDate;
+                document.getElementById('editLoginTime').value = loginValue;
+                document.getElementById('editLogoutTime').value = logoutValue;
+                document.getElementById('editLoginCutoff').value = loginCutoff;
+                document.getElementById('editLogoutCutoff').value = logoutCutoff;
+                document.getElementById('editLoginCutoffDisplay').value = loginCutoff || '--:--';
+                document.getElementById('editLogoutCutoffDisplay').value = logoutCutoff || '--:--';
+                document.getElementById('editGracePeriod').value = grace;
+                document.getElementById('editAbsentFine').value = absent;
+                document.getElementById('editLateFine').value = late;
+
+                // set edit modal login/logout enabled state
+                const editLoginEnabled = document.getElementById('editLoginEnabled');
+                const editLogoutEnabled = document.getElementById('editLogoutEnabled');
+                if (editLoginEnabled) editLoginEnabled.checked = !!loginValue;
+                if (editLogoutEnabled) editLogoutEnabled.checked = !!logoutValue;
+                const editLoginEl = document.getElementById('editLoginTime');
+                const editLogoutEl = document.getElementById('editLogoutTime');
+                if (editLoginEl) { editLoginEl.disabled = !loginValue; editLoginEl.required = !!loginValue; }
+                if (editLogoutEl) { editLogoutEl.disabled = !logoutValue; editLogoutEl.required = !!logoutValue; }
+
+                if (deleteEventErrorPlaceholder) {
+                    deleteEventErrorPlaceholder.innerHTML = '';
+                }
+            }
+
+            document.querySelectorAll('.edit-event-btn').forEach((button) => {
+                button.addEventListener('click', function () {
+                    const row = button.closest('.event-row');
+                    if (!row) return;
+                    fillEditModal(row);
+                    editEventModal?.show();
+                });
+            });
+
+            document.getElementById('openDeleteEventModal')?.addEventListener('click', function () {
+                editEventModal?.hide();
+                if (deleteEventErrorPlaceholder) {
+                    deleteEventErrorPlaceholder.innerHTML = '';
+                }
+                document.getElementById('deleteUsername').value = '';
+                document.getElementById('deletePassword').value = '';
+                deleteEventModal?.show();
+            });
+
+            document.getElementById('editLoginTime')?.addEventListener('input', updateEditCutoffTimes);
+            document.getElementById('editLogoutTime')?.addEventListener('input', updateEditCutoffTimes);
+            document.getElementById('editGracePeriod')?.addEventListener('input', updateEditCutoffTimes);
+
+            // Wire edit modal login/logout enabled checkboxes
+            const editLoginEnabledCheckbox = document.getElementById('editLoginEnabled');
+            const editLogoutEnabledCheckbox = document.getElementById('editLogoutEnabled');
+
+            function toggleEditLoginEnabled() {
+                const enabled = editLoginEnabledCheckbox?.checked;
+                const el = document.getElementById('editLoginTime');
+                const cutoffEl = document.getElementById('editLoginCutoff');
+                const cutoffDisplay = document.getElementById('editLoginCutoffDisplay');
+                if (!el) return;
+                el.disabled = !enabled;
+                el.required = !!enabled;
+                if (!enabled) {
+                    el.value = '';
+                    if (cutoffEl) cutoffEl.value = '';
+                    if (cutoffDisplay) cutoffDisplay.value = '--:--';
+                }
+            }
+
+            function toggleEditLogoutEnabled() {
+                const enabled = editLogoutEnabledCheckbox?.checked;
+                const el = document.getElementById('editLogoutTime');
+                const cutoffEl = document.getElementById('editLogoutCutoff');
+                const cutoffDisplay = document.getElementById('editLogoutCutoffDisplay');
+                if (!el) return;
+                el.disabled = !enabled;
+                el.required = !!enabled;
+                if (!enabled) {
+                    el.value = '';
+                    if (cutoffEl) cutoffEl.value = '';
+                    if (cutoffDisplay) cutoffDisplay.value = '--:--';
+                }
+            }
+
+            editLoginEnabledCheckbox?.addEventListener('change', () => { toggleEditLoginEnabled(); updateEditCutoffTimes(); });
+            editLogoutEnabledCheckbox?.addEventListener('change', () => { toggleEditLogoutEnabled(); updateEditCutoffTimes(); });
+            toggleEditLoginEnabled();
+            toggleEditLogoutEnabled();
+
+            document.querySelectorAll('.event-row').forEach((row) => {
+                const eventDate = row.dataset.eventDate;
+                const loginTime = row.dataset.eventLogin;
+                const logoutTime = row.dataset.eventLogout;
+                const conductButton = row.querySelector('.conduct-btn');
+                if (!conductButton || !eventDate) return;
+
+                const conductUrl = conductButton.dataset.conductUrl || conductButton.href;
+                const loginStart = parseEventDatetime(eventDate, loginTime);
+                let loginEnd = parseEventDatetime(eventDate, row.dataset.eventLoginCutoff);
+                const logoutStart = parseEventDatetime(eventDate, logoutTime);
+                let logoutEnd = parseEventDatetime(eventDate, row.dataset.eventLogoutCutoff);
+                const now = new Date();
+                const graceMinutes = parseInt(row.dataset.eventGrace || '0', 10) || 0;
+
+                if (!loginEnd && loginTime) {
+                    loginEnd = addMinutesToDate(eventDate, loginTime, graceMinutes);
+                }
+                if (!logoutEnd && logoutTime) {
+                    logoutEnd = addMinutesToDate(eventDate, logoutTime, graceMinutes);
+                }
+                if (loginStart && loginEnd && loginEnd <= loginStart) {
+                    loginEnd = addMinutesToDate(eventDate, loginTime, graceMinutes);
+                }
+                if (logoutStart && logoutEnd && logoutEnd <= logoutStart) {
+                    logoutEnd = addMinutesToDate(eventDate, logoutTime, graceMinutes);
+                }
+
+                const isActive = (loginStart && loginEnd && now >= loginStart && now <= loginEnd) || (logoutStart && logoutEnd && now >= logoutStart && now <= logoutEnd);
+                const isClosed = logoutEnd && now > logoutEnd;
+
+                if (isClosed) {
+                    conductButton.textContent = 'Closed';
+                    conductButton.className = 'btn btn-sm btn-outline-secondary disabled';
+                    conductButton.removeAttribute('href');
+                    conductButton.setAttribute('aria-disabled', 'true');
+                    conductButton.style.pointerEvents = 'none';
+                } else if (!isActive) {
+                    conductButton.classList.remove('btn-outline-primary');
+                    conductButton.classList.add('btn-outline-secondary', 'disabled');
+                    if (conductUrl) {
+                        conductButton.setAttribute('href', conductUrl);
+                    }
+                    conductButton.setAttribute('aria-disabled', 'true');
+                    conductButton.style.pointerEvents = 'none';
+                } else {
+                    conductButton.classList.remove('btn-outline-secondary', 'disabled');
+                    conductButton.classList.add('btn-outline-primary');
+                    if (conductUrl) {
+                        conductButton.setAttribute('href', conductUrl);
+                    }
+                    conductButton.removeAttribute('aria-disabled');
+                    conductButton.style.pointerEvents = '';
+                }
+            });
+        });
+    </script>
+
+</div>
+
+{% endblock %}

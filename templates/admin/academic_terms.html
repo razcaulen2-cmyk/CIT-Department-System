@@ -1,0 +1,273 @@
+{% extends "layout/admin_base.html" %}
+
+{% block title %}
+Academic Terms
+{% endblock %}
+
+{% block page_title %}
+Academic Terms
+{% endblock %}
+
+{% block content %}
+
+<div class="container-fluid">
+
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">MANAGEMENT</p>
+            <h3 class="mb-2">Academic Terms</h3>
+            <p class="text-muted mb-0">Define and manage school terms and semesters.</p>
+        </div>
+        <button type="button" class="btn btn-dark rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#addTermModal">
+            + Add Term
+        </button>
+    </div>
+
+    {% if terms %}
+    <div class="terms-grid">
+        {% for term in terms %}
+        <div class="term-card">
+            <div class="term-header">
+                <div>
+                    <h4 class="term-year">{{ term.academic_year }}</h4>
+                    <p class="term-semester">{{ term.semester }}</p>
+                </div>
+                {% if term.is_active %}
+                <span class="badge bg-success rounded-pill px-3">Active</span>
+                {% endif %}
+            </div>
+            <div class="term-dates">
+                {% if term.start_date %}
+                <p><span class="label">Start:</span> {{ term.start_date }}</p>
+                {% endif %}
+                {% if term.end_date %}
+                <p><span class="label">End:</span> {{ term.end_date }}</p>
+                {% endif %}
+            </div>
+            <div class="term-actions">
+                <button type="button" class="btn btn-sm btn-outline-dark rounded-pill" data-bs-toggle="modal" data-bs-target="#editTermModal" data-term-id="{{ term.id }}" data-term-year="{{ term.academic_year }}" data-term-semester="{{ term.semester }}" data-term-start="{{ term.start_date }}" data-term-end="{{ term.end_date }}" data-term-active="{{ term.is_active }}">
+                    Edit
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" data-bs-toggle="modal" data-bs-target="#deleteTermModal" data-term-id="{{ term.id }}" data-term-year="{{ term.academic_year }}">
+                    Delete
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p class="text-muted">No academic terms yet. Create one to get started.</p>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Add Term Modal -->
+<div class="modal fade" id="addTermModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="/add-academic-term">
+        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+          <h5 class="modal-title fw-bold">Add Academic Term</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-600">Academic Year</label>
+            <input type="text" name="academic_year" class="form-control rounded-lg" placeholder="e.g., 2024-2025" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Semester</label>
+            <select name="semester" class="form-select rounded-lg" required>
+              <option value="">Select Semester</option>
+              <option value="First Semester">First Semester</option>
+              <option value="Second Semester">Second Semester</option>
+              <option value="Summer">Summer</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Start Date</label>
+            <input type="date" name="start_date" class="form-control rounded-lg">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">End Date</label>
+            <input type="date" name="end_date" class="form-control rounded-lg">
+          </div>
+          <div class="mb-3 form-check">
+            <input type="checkbox" name="is_active" class="form-check-input" id="isActive">
+            <label class="form-check-label" for="isActive">Set as Active Term</label>
+          </div>
+        </div>
+        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-dark rounded-pill">Save Term</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Term Modal -->
+<div class="modal fade" id="editTermModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="editTermForm">
+        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+          <h5 class="modal-title fw-bold">Edit Academic Term</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-600">Academic Year</label>
+            <input type="text" name="academic_year" id="editTermYear" class="form-control rounded-lg" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Semester</label>
+            <select name="semester" id="editTermSemester" class="form-select rounded-lg" required>
+              <option value="First Semester">First Semester</option>
+              <option value="Second Semester">Second Semester</option>
+              <option value="Summer">Summer</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Start Date</label>
+            <input type="date" name="start_date" id="editTermStart" class="form-control rounded-lg">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">End Date</label>
+            <input type="date" name="end_date" id="editTermEnd" class="form-control rounded-lg">
+          </div>
+          <div class="mb-3 form-check">
+            <input type="checkbox" name="is_active" id="editTermActive" class="form-check-input">
+            <label class="form-check-label" for="editTermActive">Set as Active Term</label>
+          </div>
+        </div>
+        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-dark rounded-pill">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Term Modal -->
+<div class="modal fade" id="deleteTermModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="deleteTermForm">
+        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+          <h5 class="modal-title fw-bold">Delete Academic Term</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-danger fw-600">Are you sure you want to delete <span id="deleteTermYear"></span>?</p>
+          <p class="text-muted small">This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger rounded-pill">Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-radius: 18px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+}
+
+.terms-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.term-card {
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.term-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.term-year {
+    margin: 0;
+    font-weight: 700;
+}
+
+.term-semester {
+    color: var(--muted);
+    margin: 4px 0 0 0;
+    font-size: 0.9rem;
+}
+
+.term-dates {
+    padding: 12px;
+    background: rgba(212, 175, 55, 0.08);
+    border-radius: 10px;
+    font-size: 0.9rem;
+}
+
+.term-dates p {
+    margin: 6px 0;
+}
+
+.term-dates .label {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.term-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+}
+</style>
+
+<script>
+const editTermModal = document.getElementById('editTermModal');
+editTermModal.addEventListener('show.bs.modal', function (event) {
+    const button = event.relatedTarget;
+    const termId = button.getAttribute('data-term-id');
+    document.getElementById('editTermYear').value = button.getAttribute('data-term-year');
+    document.getElementById('editTermSemester').value = button.getAttribute('data-term-semester');
+    document.getElementById('editTermStart').value = button.getAttribute('data-term-start') || '';
+    document.getElementById('editTermEnd').value = button.getAttribute('data-term-end') || '';
+    document.getElementById('editTermActive').checked = button.getAttribute('data-term-active') === 'True' || button.getAttribute('data-term-active') === '1';
+    document.getElementById('editTermForm').action = '/edit-academic-term/' + termId;
+});
+
+const deleteTermModal = document.getElementById('deleteTermModal');
+deleteTermModal.addEventListener('show.bs.modal', function (event) {
+    const button = event.relatedTarget;
+    const termId = button.getAttribute('data-term-id');
+    const termYear = button.getAttribute('data-term-year');
+    document.getElementById('deleteTermYear').textContent = termYear;
+    document.getElementById('deleteTermForm').action = '/delete-academic-term/' + termId;
+});
+</script>
+
+{% endblock %}

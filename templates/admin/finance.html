@@ -1,0 +1,346 @@
+{% extends "layout/admin_base.html" %}
+
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <div class="eyebrow">MANAGEMENT</div>
+        <h1>Funds & Fines Overview</h1>
+        <p>View and manage student fund and fine balances across all courses and academic years.</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-dark rounded-pill px-4" onclick="openQrModal()">
+            <i class="bi bi-qr-code"></i> Tap Student ID
+        </button>
+    </div>
+</div>
+
+<!-- Filters Section -->
+<div class="filter-section">
+    <div class="filter-controls">
+        <form method="GET" class="filter-form" onchange="this.submit()">
+            <div class="filter-group">
+                <label for="course-filter">Filter by Course</label>
+                <select id="course-filter" name="course" class="form-select">
+                    <option value="">All Courses</option>
+                    {% for c in courses %}
+                    <option value="{{ c }}" {% if c == selected_course %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="year-filter">Filter by Year Level</label>
+                <select id="year-filter" name="year_level" class="form-select">
+                    <option value="">All Years</option>
+                    {% for year in year_levels %}
+                    <option value="{{ year }}" {% if year|string == selected_year_level|string %}selected{% endif %}>Year {{ year }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Students Data Table -->
+<div class="table-container">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Student ID</th>
+                <th>Name</th>
+                <th>Course</th>
+                <th>Year Level</th>
+                <th>Total Funds</th>
+                <th>Total Fines</th>
+                <th>Overall Balance</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if students %}
+                {% for student in students %}
+                <tr onclick="selectStudent('{{ student.student_id }}')">
+                    <td class="student-id">{{ student.student_id }}</td>
+                    <td>{{ student.firstname|upper }} {{ student.lastname|upper }}</td>
+                    <td>{{ student.course|upper }}</td>
+                    <td class="text-center">Year {{ student.year_level }}</td>
+                    <td class="amount">PHP {{ "%.2f"|format(student.total_funds) }}</td>
+                    <td class="amount">PHP {{ "%.2f"|format(student.total_fines) }}</td>
+                    <td class="amount total">PHP {{ "%.2f"|format(student.total_funds + student.total_fines) }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="7" class="text-center text-muted">No students found</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<!-- QR Tap Modal -->
+<div class="modal fade" id="qrModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Tap Student ID</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Tap the student's ID card or scan their QR code:</p>
+                <input type="text" id="studentIdInput" class="form-control form-control-lg" placeholder="Student ID" autofocus>
+                <div id="studentInfo" class="mt-3" style="display: none;">
+                    <div class="card" style="border-color: var(--line-soft);">
+                        <div class="card-body">
+                            <p><strong>Student:</strong> <span id="infoName"></span></p>
+                            <p><strong>Course:</strong> <span id="infoCourse"></span></p>
+                            <p><strong>Funds Balance:</strong> <span id="infoFunds" class="text-danger"></span></p>
+                            <p><strong>Fines Balance:</strong> <span id="infoFines" class="text-danger"></span></p>
+                            <p class="mb-0"><strong>Total Balance:</strong> <span id="infoTotal" class="text-danger fw-bold"></span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-dark" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.filter-section {
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.filter-controls {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.filter-form {
+    display: flex;
+    gap: 16px;
+    flex: 1;
+    min-width: 500px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.filter-group .form-select {
+    padding: 8px 12px;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+        background: #141414;
+        color: var(--text);
+    }
+
+    .filter-group .form-select option {
+        background: #141414;
+        color: var(--text);
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table thead {
+    background: rgba(212, 175, 55, 0.08);
+    border-bottom: 2px solid var(--line-soft);
+}
+
+.data-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.data-table tbody tr {
+    border-bottom: 1px solid var(--line-soft);
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+}
+
+.data-table tbody tr:hover {
+    background-color: rgba(212, 175, 55, 0.04);
+}
+
+.data-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.data-table td {
+    padding: 12px 16px;
+    color: var(--text);
+}
+
+.student-id {
+    font-weight: 600;
+    color: var(--line);
+}
+
+.amount {
+    text-align: right;
+    font-family: 'Courier New', monospace;
+}
+
+.amount.total {
+    font-weight: 600;
+    color: var(--line);
+}
+
+.text-center {
+    text-align: center;
+}
+
+.text-muted {
+    color: var(--muted);
+}
+
+.modal-content {
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.modal-title {
+    font-weight: 600;
+}
+
+.form-control-lg {
+    padding: 12px 16px;
+    font-size: 1.125rem;
+    border: 2px solid var(--line-soft);
+    border-radius: 8px;
+}
+
+.form-control-lg:focus {
+    border-color: var(--line);
+    box-shadow: 0 0 0 0.2rem rgba(212, 175, 55, 0.25);
+}
+
+.card {
+    border-radius: 12px;
+    background: rgba(212, 175, 55, 0.04);
+}
+
+.card-body {
+    padding: 16px;
+}
+
+.card-body p {
+    margin-bottom: 8px;
+    font-size: 0.95rem;
+}
+
+.text-danger {
+    color: #d32f2f;
+}
+
+.text-right {
+    text-align: right;
+}
+</style>
+
+<script>
+function openQrModal() {
+    const modal = new bootstrap.Modal(document.getElementById('qrModal'));
+    modal.show();
+    const input = document.getElementById('studentIdInput');
+    const studentInfo = document.getElementById('studentInfo');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+    if (studentInfo) {
+        studentInfo.style.display = 'none';
+    }
+}
+
+const studentIdInput = document.getElementById('studentIdInput');
+let scanTimer = null;
+const SCAN_TIMEOUT_MS = 250;
+
+if (studentIdInput) {
+    studentIdInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            const studentId = this.value.trim();
+            if (studentId) {
+                fetchStudentBalance(studentId);
+            }
+        }
+    });
+
+    studentIdInput.addEventListener('input', function() {
+        if (scanTimer) {
+            clearTimeout(scanTimer);
+        }
+        scanTimer = setTimeout(() => {
+            const studentId = this.value.trim();
+            if (studentId) {
+                fetchStudentBalance(studentId);
+            }
+        }, SCAN_TIMEOUT_MS);
+    });
+
+    studentIdInput.addEventListener('paste', function() {
+        setTimeout(() => {
+            const studentId = this.value.trim();
+            if (studentId) {
+                fetchStudentBalance(studentId);
+            }
+        }, 0);
+    });
+}
+
+function fetchStudentBalance(studentId) {
+    fetch(`/api/student-balance/${studentId}`)
+        .then(response => {
+            if (!response.ok) throw new Error('Student not found');
+            return response.json();
+        })
+        .then(data => {
+            displayStudentInfo(data);
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+}
+
+function displayStudentInfo(data) {
+    document.getElementById('infoName').textContent = `${data.firstname} ${data.lastname}`;
+    document.getElementById('infoCourse').textContent = data.course;
+    document.getElementById('infoFunds').textContent = `PHP ${parseFloat(data.total_funds).toFixed(2)}`;
+    document.getElementById('infoFines').textContent = `PHP ${parseFloat(data.total_fines).toFixed(2)}`;
+    document.getElementById('infoTotal').textContent = `PHP ${parseFloat(data.total_balance).toFixed(2)}`;
+    document.getElementById('studentInfo').style.display = 'block';
+}
+
+function selectStudent(studentId) {
+    // Highlight the row and show details
+    console.log('Selected student:', studentId);
+}
+</script>
+
+{% endblock %}

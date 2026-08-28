@@ -1,0 +1,406 @@
+{% extends "layout/admin_base.html" %}
+
+{% block title %}
+Students
+{% endblock %}
+
+{% block page_title %}
+Students
+{% endblock %}
+
+{% block content %}
+
+<div class="container-fluid">
+
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">MANAGEMENT</p>
+            <h3 class="mb-2">Students</h3>
+            <p class="text-muted mb-0">Add, edit, or remove student records and assign RFID tags.</p>
+        </div>
+        <button type="button" class="btn btn-dark rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#addStudentModal">
+            + Add Student
+        </button>
+    </div>
+
+    <div class="student-tools d-flex flex-wrap align-items-end gap-3 mb-4">
+        <div class="input-group" style="min-width: 260px; max-width: 360px;">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input id="studentSearchInput" type="text" class="form-control" placeholder="Search students">
+        </div>
+        <div class="form-group" style="min-width: 180px;">
+            <select id="studentCourseFilter" class="form-select rounded-lg" aria-label="Course filter">
+                <option value="">All Courses</option>
+            </select>
+        </div>
+        <div class="form-group" style="min-width: 180px;">
+            <select id="studentYearFilter" class="form-select rounded-lg" aria-label="Year filter">
+                <option value="">All Years</option>
+            </select>
+        </div>
+    </div>
+
+    {% if students %}
+    <div class="table-responsive">
+        <table class="table table-hover" style="border: 1px solid var(--line-soft); border-radius: 16px; overflow: hidden;">
+            <thead style="background: rgba(212, 175, 55, 0.05); border-bottom: 1px solid var(--line-soft);">
+                <tr>
+                    <th style="border: none; font-weight: 700;">RFID Status</th>
+                    <th id="nameHeader" class="sortable-column" style="border: none; font-weight: 700; cursor:pointer;">Name <span id="nameSortIcon">↕</span></th>
+                    <th style="border: none; font-weight: 700;">Course</th>
+                    <th style="border: none; font-weight: 700;">Year</th>
+                    <th style="border: none; font-weight: 700;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for student in students %}
+                <tr style="border-bottom: 1px solid var(--line-soft);">
+                    <td style="border: none;">
+                        {% if student.student_id %}
+                            <span class="badge bg-success rounded-pill px-3">Mapped</span>
+                        {% else %}
+                            <button type="button"
+                                class="btn btn-sm btn-outline-dark rounded-pill"
+                                data-bs-toggle="modal"
+                                data-bs-target="#mapRfidModal"
+                                data-student-id="{{ student.id }}"
+                                data-student-name="{{ student.firstname|upper }} {{ student.lastname|upper }}"
+                            >
+                                Map RFID
+                            </button>
+                        {% endif %}
+                    </td>
+                    <td style="border: none;">{{ student.firstname|upper }} {{ student.lastname|upper }}</td>
+                    <td style="border: none;">{{ student.course|upper }}</td>
+                    <td style="border: none;">{{ student.year_level }}</td>
+                    <td style="border: none;">
+                        <button type="button"
+                            class="btn btn-sm btn-outline-dark rounded-pill"
+                            data-bs-toggle="modal"
+                            data-bs-target="#editStudentModal"
+                            data-student-id="{{ student.id }}"
+                            data-student-firstname="{{ student.firstname|upper }}"
+                            data-student-lastname="{{ student.lastname|upper }}"
+                            data-student-course="{{ student.course|upper }}"
+                            data-student-year="{{ student.year_level }}"
+                        >
+                            Edit
+                        </button>
+                        <button type="button"
+                            class="btn btn-sm btn-outline-danger rounded-pill"
+                            data-bs-toggle="modal"
+                            data-bs-target="#deleteStudentModal"
+                            data-student-id="{{ student.id }}"
+                            data-student-name="{{ student.firstname|upper }} {{ student.lastname|upper }}"
+                        >
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p class="text-muted">No students yet. Add one to get started.</p>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- Add Student Modal -->
+<div class="modal fade" id="addStudentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="/add-student">
+        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+          <h5 class="modal-title fw-bold">Add Student</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-600">First Name</label>
+            <input type="text" name="firstname" class="form-control rounded-lg" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Last Name</label>
+            <input type="text" name="lastname" class="form-control rounded-lg" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Course</label>
+            <input type="text" name="course" class="form-control rounded-lg" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Year Level</label>
+            <input type="text" name="year_level" class="form-control rounded-lg" required>
+          </div>
+        </div>
+        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-dark rounded-pill">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Student Modal -->
+<div class="modal fade" id="editStudentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="editStudentForm">
+        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+          <h5 class="modal-title fw-bold">Edit Student</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-600">First Name</label>
+            <input type="text" name="firstname" id="editFirstname" class="form-control rounded-lg" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Last Name</label>
+            <input type="text" name="lastname" id="editLastname" class="form-control rounded-lg" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Course</label>
+            <input type="text" name="course" id="editCourse" class="form-control rounded-lg" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Year Level</label>
+            <input type="text" name="year_level" id="editYearLevel" class="form-control rounded-lg" required>
+          </div>
+        </div>
+        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-dark rounded-pill">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Student Modal -->
+<div class="modal fade" id="deleteStudentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="deleteStudentForm">
+        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+          <h5 class="modal-title fw-bold">Delete Student</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-danger fw-600">Are you sure you want to delete <span id="deleteStudentName"></span>?</p>
+          <p class="text-muted small">This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger rounded-pill">Delete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Map RFID Modal -->
+<div class="modal fade" id="mapRfidModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="mapRfidForm">
+        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+          <h5 class="modal-title fw-bold">Map RFID</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p>Assign RFID to <strong id="mapRfidStudentName"></strong>.</p>
+          <div class="mb-3">
+            <label class="form-label fw-600">RFID Value</label>
+            <input type="text" name="student_id" id="mapRfidValue" class="form-control rounded-lg" required>
+          </div>
+        </div>
+        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-dark rounded-pill">Save RFID</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<style>
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--line-soft);
+    border-radius: 18px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+}
+
+.student-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.input-group .form-control {
+    border-left: none;
+}
+
+.input-group-text {
+    border: 1px solid var(--line-soft);
+    border-right: none;
+    background: var(--panel);
+    color: var(--text);
+}
+
+.student-tools .form-select,
+.student-tools .form-control {
+    border: 1px solid var(--line-soft);
+}
+
+.sortable-column {
+    user-select: none;
+}
+
+.sortable-column:hover {
+    color: var(--line);
+}
+
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--line);
+    box-shadow: 0 0 0 0.2rem rgba(212, 175, 55, 0.15);
+}
+</style>
+
+<script>
+    const editStudentModal = document.getElementById('editStudentModal');
+    editStudentModal.addEventListener('show.bs.modal', function (event) {
+        const button = event.relatedTarget;
+        const studentId = button.getAttribute('data-student-id');
+        document.getElementById('editFirstname').value = button.getAttribute('data-student-firstname');
+        document.getElementById('editLastname').value = button.getAttribute('data-student-lastname');
+        document.getElementById('editCourse').value = button.getAttribute('data-student-course');
+        document.getElementById('editYearLevel').value = button.getAttribute('data-student-year');
+        document.getElementById('editStudentForm').action = '/edit-student/' + studentId;
+    });
+
+    const deleteStudentModal = document.getElementById('deleteStudentModal');
+    deleteStudentModal.addEventListener('show.bs.modal', function (event) {
+        const button = event.relatedTarget;
+        const studentId = button.getAttribute('data-student-id');
+        const studentName = button.getAttribute('data-student-name');
+        document.getElementById('deleteStudentName').textContent = studentName;
+        document.getElementById('deleteStudentForm').action = '/delete-student/' + studentId;
+    });
+
+    const mapRfidModal = document.getElementById('mapRfidModal');
+    mapRfidModal.addEventListener('show.bs.modal', function (event) {
+        const button = event.relatedTarget;
+        const studentId = button.getAttribute('data-student-id');
+        const studentName = button.getAttribute('data-student-name');
+        document.getElementById('mapRfidStudentName').textContent = studentName;
+        document.getElementById('mapRfidValue').value = '';
+        document.getElementById('mapRfidForm').action = '/map-rfid/' + studentId;
+    });
+
+    mapRfidModal.addEventListener('shown.bs.modal', function () {
+        const input = document.getElementById('mapRfidValue');
+        input.focus();
+        input.select();
+    });
+
+    document.getElementById('mapRfidValue').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            document.getElementById('mapRfidForm').submit();
+        }
+    });
+
+    const nameHeader = document.getElementById('nameHeader');
+    const nameSortIcon = document.getElementById('nameSortIcon');
+    const studentSearchInput = document.getElementById('studentSearchInput');
+    const studentCourseFilter = document.getElementById('studentCourseFilter');
+    const studentYearFilter = document.getElementById('studentYearFilter');
+    const studentRows = Array.from(document.querySelectorAll('tbody tr'));
+
+    const studentsData = studentRows.map(row => ({
+        row,
+        name: row.children[1].textContent.trim().toUpperCase(),
+        course: row.children[2].textContent.trim().toUpperCase(),
+        year: row.children[3].textContent.trim(),
+    }));
+
+    function applyFilters() {
+        const searchValue = studentSearchInput.value.trim().toUpperCase();
+        const courseValue = studentCourseFilter.value;
+        const yearValue = studentYearFilter.value;
+
+        studentsData.forEach(student => {
+            const matchesSearch = !searchValue || student.name.includes(searchValue);
+            const matchesCourse = !courseValue || student.course === courseValue;
+            const matchesYear = !yearValue || student.year === yearValue;
+            const visible = matchesSearch && matchesCourse && matchesYear;
+            student.row.style.display = visible ? '' : 'none';
+        });
+    }
+
+    function setSortIcon(direction) {
+        nameSortIcon.textContent = direction === 'asc' ? 'A→Z' : direction === 'desc' ? 'Z→A' : '↕';
+    }
+
+    let nameSortDirection = null;
+
+    function sortByName() {
+        if (nameSortDirection === 'asc') {
+            nameSortDirection = 'desc';
+        } else {
+            nameSortDirection = 'asc';
+        }
+
+        const sorted = [...studentsData].sort((a, b) => {
+            if (a.name < b.name) return nameSortDirection === 'asc' ? -1 : 1;
+            if (a.name > b.name) return nameSortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        const tbody = document.querySelector('tbody');
+        sorted.forEach(student => tbody.appendChild(student.row));
+        setSortIcon(nameSortDirection);
+        applyFilters();
+    }
+
+    function populateFilterOptions() {
+        const courses = Array.from(new Set(studentsData.map(s => s.course).filter(Boolean))).sort();
+        const years = Array.from(new Set(studentsData.map(s => s.year).filter(Boolean))).sort((a, b) => Number(a) - Number(b));
+
+        courses.forEach(course => {
+            const option = document.createElement('option');
+            option.value = course;
+            option.textContent = course;
+            studentCourseFilter.appendChild(option);
+        });
+
+        years.forEach(year => {
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = year;
+            studentYearFilter.appendChild(option);
+        });
+    }
+
+    populateFilterOptions();
+
+    nameHeader.addEventListener('click', sortByName);
+    studentSearchInput.addEventListener('input', applyFilters);
+    studentCourseFilter.addEventListener('change', applyFilters);
+    studentYearFilter.addEventListener('change', applyFilters);
+</script>
+
+{% endblock %}

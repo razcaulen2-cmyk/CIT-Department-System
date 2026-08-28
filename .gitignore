@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+uploads/*
+!uploads/.gitkeep
+*.log
+err.txt
+out.txt
+CIT Students DATA.csv
+dept system_blueprint.pdf

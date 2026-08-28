@@ -1,0 +1,194 @@
+{% extends "layout/admin_base.html" %}
+
+{% block title %}
+Attendance
+{% endblock %}
+
+{% block page_title %}
+Attendance
+{% endblock %}
+
+{% block content %}
+
+<div class="container-fluid">
+
+    <div class="panel-intro mb-4">
+        <div>
+            <p class="eyebrow">ATTENDANCE</p>
+            <h3 class="mb-1">Overview of student attendance</h3>
+            <p class="text-muted mb-0">Filter by student or event to see attendance records and marks.</p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="get" action="/attendance" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Academic Year</label>
+                    <select name="academic_year" class="form-select">
+                        <option value="">-- All academic years --</option>
+                        {% for ay in academic_years %}
+                        <option value="{{ ay }}" {% if ay == selected_academic_year %}selected{% endif %}>{{ ay }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Event</label>
+                    <select name="event_id" class="form-select">
+                        <option value="">-- All events --</option>
+                        {% for ev in events %}
+                        <option value="{{ ev.id }}" {% if ev.id == selected_event_id %}selected{% endif %}>{{ ev.name }} — {{ ev.date }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Course</label>
+                    <select name="course" class="form-select">
+                        <option value="">-- All courses --</option>
+                        {% for c in courses %}
+                        <option value="{{ c }}" {% if c == selected_course %}selected{% endif %}>{{ c }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Year level</label>
+                    <select name="year_level" class="form-select">
+                        <option value="">-- All years --</option>
+                        {% for y in year_levels %}
+                        <option value="{{ y }}" {% if y|string == selected_year_level|string %}selected{% endif %}>{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-12 text-end">
+                    <button class="btn btn-outline-secondary me-2" type="button" data-bs-toggle="modal" data-bs-target="#generateReportModal">Generate Report</button>
+                    <button class="btn btn-primary">Filter</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if event_groups %}
+        {% for group in event_groups %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <strong>{{ group.event.name }}</strong> — {{ group.event.date }}
+            </div>
+            <div class="card-body">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Course</th>
+                            <th>Login Time</th>
+                            <th>Logout Time</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in group.rows %}
+                        <tr>
+                            <td>{{ r.lastname }}, {{ r.firstname }}</td>
+                            <td>{{ r.course }} - {{ r.year_level }}</td>
+                            <td>{{ r.login_time or '—' }}</td>
+                            <td>{{ r.logout_time or '—' }}</td>
+                            <td>{{ r.status }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="text-muted">No students found for this event.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="card shadow-sm">
+            <div class="card-body text-muted">No attendance data available for the selected filters.</div>
+        </div>
+    {% endif %}
+
+</div>
+
+<!-- Generate Report Modal -->
+<div class="modal fade" id="generateReportModal" tabindex="-1" aria-labelledby="generateReportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="generateReportModalLabel">Generate Attendance Report</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="get" action="{{ url_for('events.attendance_report') }}" target="_blank">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Attendance Event</label>
+                            <select name="event_id" class="form-select" required>
+                                <option value="">-- Select event --</option>
+                                {% for ev in events %}
+                                <option value="{{ ev.id }}" {% if ev.id == selected_event_id %}selected{% endif %}>{{ ev.name }} — {{ ev.date }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Status</label>
+                            <select name="status_option" class="form-select">
+                                <option value="both">Both present and absent</option>
+                                <option value="present">Present only</option>
+                                <option value="absent">Absent only</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Course</label>
+                            <select name="course" class="form-select">
+                                <option value="">All courses</option>
+                                {% for c in courses %}
+                                <option value="{{ c }}">{{ c }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Year level</label>
+                            <select name="year_level" class="form-select">
+                                <option value="">All years</option>
+                                {% for y in year_levels %}
+                                <option value="{{ y }}">{{ y }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label">Sort By</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="name" id="sortByName" name="sort_by">
+                                    <label class="form-check-label" for="sortByName">Sort By Name (A-Z)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="course" id="sortByCourse" name="sort_by">
+                                    <label class="form-check-label" for="sortByCourse">Sort By Course</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="year" id="sortByYear" name="sort_by">
+                                    <label class="form-check-label" for="sortByYear">Sort By Year (1-4)</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label">Output format</label>
+                            <select name="output_format" class="form-select" required>
+                                <option value="pdf">PDF</option>
+                                <option value="excel">Excel</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Generate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
