@@ -20,9 +20,9 @@ Events
         </div>
     </div>
 
-    <div class="row">
+    <div class="row event-panels-row">
         <div class="col-md-6">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm event-create-panel">
                 <div class="card-header">Create Event</div>
                 <div class="card-body event-card-body">
                     <form action="/events/create" method="post" id="eventForm">
@@ -79,9 +79,9 @@ Events
         </div>
 
         <div class="col-md-6">
-            <div class="card shadow-sm">
+            <div class="card shadow-sm events-panel">
                 <div class="card-header">Existing Events</div>
-                <div class="card-body">
+                <div class="card-body events-panel-body">
                     {% if request.args.get('delete_error') == 'invalid' %}
                     <div class="alert alert-danger">Invalid admin credentials. Event was not deleted.</div>
                     {% endif %}
@@ -104,8 +104,12 @@ Events
                                     <td>₱{{ ev.absent_fine or '0.00' }}</td>
                                     <td>₱{{ ev.late_fine or '0.00' }}</td>
                                     <td class="text-end">
-                                        <button type="button" class="btn btn-sm btn-outline-secondary edit-event-btn me-2">Edit</button>
-                                        <a href="/events/{{ ev.id }}/conduct" data-conduct-url="/events/{{ ev.id }}/conduct" class="btn btn-sm btn-outline-primary conduct-btn">Conduct</a>
+                                        <div class="event-actions">
+                                            <button type="button" class="btn btn-sm btn-outline-warning exemptions-btn" data-event-id="{{ ev.id }}" data-event-name="{{ ev.name }}">Exemptions</button>
+                                            <button type="button" class="btn btn-sm btn-outline-warning exemption-list-btn" data-event-id="{{ ev.id }}" data-event-name="{{ ev.name }}">Exempt List</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary edit-event-btn">Edit</button>
+                                            <a href="/events/{{ ev.id }}/conduct" data-conduct-url="/events/{{ ev.id }}/conduct" class="btn btn-sm btn-outline-primary conduct-btn">Conduct</a>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% else %}
@@ -176,6 +180,180 @@ Events
                                         <button type="submit" class="btn btn-primary">Save changes</button>
                                     </div>
                                 </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Event Exemptions Modal -->
+                    <div class="modal fade" id="exemptionsModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <div>
+                                        <h5 class="modal-title">Exemptions</h5>
+                                        <p class="text-muted small mb-0" id="exemptionsEventName"></p>
+                                    </div>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="exemptionsFeedback"></div>
+                                    <div class="row g-4">
+                                        <div class="col-lg-7">
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <h6 class="mb-0">Choose students</h6>
+                                                <span class="text-muted small" id="exemptionCount">0 selected</span>
+                                            </div>
+                                            <input type="search" class="form-control mb-3" id="exemptionStudentSearch" placeholder="Search by name, course, or year">
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-sm-6">
+                                                    <select class="form-select" id="exemptionCourseFilter" aria-label="Filter students by course">
+                                                        <option value="">All Courses</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-sm-6">
+                                                    <select class="form-select" id="exemptionYearFilter" aria-label="Filter students by year level">
+                                                        <option value="">All Years</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="exemption-student-list border rounded p-2" id="exemptionStudentList">
+                                                <span class="text-muted">Loading students...</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-lg-5">
+                                            <h6>Saved exemption lists</h6>
+                                            <p class="text-muted small">Applying a list copies its current members to this event.</p>
+                                            <div class="exemption-list-picker border rounded p-2 mb-4" id="exemptionListPicker">
+                                                <span class="text-muted">Loading lists...</span>
+                                            </div>
+                                            <button type="button" class="btn btn-outline-warning" id="openCreateExemptionListModal">
+                                                <i class="bi bi-plus-lg"></i> Create List
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="button" class="btn btn-primary" id="saveExemptionsButton">Save exemptions</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Create Exemption List Modal -->
+                    <div class="modal fade" id="createExemptionListModal" tabindex="-1" aria-labelledby="createExemptionListTitle" aria-hidden="true">
+                        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <div>
+                                        <h5 class="modal-title" id="createExemptionListTitle">Create Exemption List</h5>
+                                        <p class="text-muted small mb-0">Choose students for this reusable list, or select a year level.</p>
+                                    </div>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <form id="createExemptionListForm">
+                                    <div class="modal-body">
+                                        <div id="createExemptionListFeedback"></div>
+                                        <div class="mb-3">
+                                            <label class="form-label" for="exemptionListName">List name</label>
+                                            <input class="form-control" id="exemptionListName" required maxlength="120" placeholder="e.g. Student Council">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label" for="exemptionListType">List source</label>
+                                            <select class="form-select" id="exemptionListType">
+                                                <option value="students">Choose students</option>
+                                                <option value="year">Year level</option>
+                                            </select>
+                                        </div>
+                                        <div id="createExemptionStudentsGroup">
+                                            <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                                                <label class="form-label mb-0" for="createExemptionStudentSearch">Students</label>
+                                                <span class="text-muted small" id="createExemptionStudentCount">0 selected</span>
+                                            </div>
+                                            <input type="search" class="form-control mb-2" id="createExemptionStudentSearch" placeholder="Search by name, course, or year">
+                                            <div class="d-flex justify-content-end gap-2 mb-2">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="selectVisibleCreateExemptionStudents">Select visible</button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="clearCreateExemptionStudents">Clear selection</button>
+                                            </div>
+                                            <div class="exemption-student-list border rounded p-2" id="createExemptionStudentList">
+                                                <span class="text-muted">Loading students...</span>
+                                            </div>
+                                        </div>
+                                        <div class="mb-0 d-none" id="exemptionListYearGroup">
+                                            <label class="form-label" for="exemptionListYear">Year level</label>
+                                            <select class="form-select" id="exemptionListYear" required></select>
+                                        </div>
+                                        <p class="text-muted small mt-3 mb-0" id="createExemptionListSelectionHelp">Only students checked in this window will be added to the list.</p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="submit" class="btn btn-primary">Create List</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Edit Exemption List Modal -->
+                    <div class="modal fade" id="editExemptionListModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Edit Exemption List</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="editExemptionListFeedback"></div>
+                                    <input type="hidden" id="editExemptionListId">
+                                    <div class="mb-3">
+                                        <label class="form-label" for="editExemptionListName">List name</label>
+                                        <input class="form-control" id="editExemptionListName" required maxlength="120">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label" for="editExemptionListType">List source</label>
+                                        <select class="form-select" id="editExemptionListType">
+                                            <option value="students">Selected students</option>
+                                            <option value="year">Year level</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3 d-none" id="editExemptionListYearGroup">
+                                        <label class="form-label" for="editExemptionListYear">Year level</label>
+                                        <select class="form-select" id="editExemptionListYear"></select>
+                                    </div>
+                                    <div id="editExemptionStudentsGroup">
+                                        <label class="form-label" for="editExemptionStudentSearch">Students</label>
+                                        <input type="search" class="form-control mb-2" id="editExemptionStudentSearch" placeholder="Search students">
+                                        <div class="exemption-student-list border rounded p-2" id="editExemptionStudentList"></div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="button" class="btn btn-primary" id="saveExemptionListButton">Save changes</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Event Exempt List Modal -->
+                    <div class="modal fade" id="exemptionListModal" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <div>
+                                        <h5 class="modal-title">Exempt List</h5>
+                                        <p class="text-muted small mb-0" id="exemptionListEventName"></p>
+                                    </div>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="exemptionListFeedback"></div>
+                                    <div id="eventExemptedStudents" class="event-exempted-students">
+                                        <span class="text-muted">Loading students...</span>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -287,6 +465,27 @@ Events
 
         document.addEventListener('DOMContentLoaded', function () {
             updateCutoffTimes();
+
+            function matchEventPanelHeights() {
+                const createPanel = document.querySelector('.event-create-panel');
+                const eventsPanel = document.querySelector('.events-panel');
+                const eventsBody = document.querySelector('.events-panel-body');
+                if (!createPanel || !eventsPanel || !eventsBody) return;
+
+                if (window.innerWidth <= 767.98) {
+                    eventsPanel.style.height = '';
+                    eventsBody.style.height = '';
+                    return;
+                }
+
+                const panelHeight = createPanel.getBoundingClientRect().height;
+                const headerHeight = eventsPanel.querySelector('.card-header')?.getBoundingClientRect().height || 0;
+                eventsPanel.style.height = `${panelHeight}px`;
+                eventsBody.style.height = `${Math.max(panelHeight - headerHeight, 0)}px`;
+            }
+
+            matchEventPanelHeights();
+            window.addEventListener('resize', matchEventPanelHeights);
 
             loginTimeInput?.addEventListener('input', updateCutoffTimes);
             logoutTimeInput?.addEventListener('input', updateCutoffTimes);
@@ -489,6 +688,438 @@ Events
                     conductButton.removeAttribute('aria-disabled');
                     conductButton.style.pointerEvents = '';
                 }
+            });
+        });
+    </script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const exemptionsModalEl = document.getElementById('exemptionsModal');
+            const exemptionsModal = exemptionsModalEl ? new bootstrap.Modal(exemptionsModalEl) : null;
+            const createListModalEl = document.getElementById('createExemptionListModal');
+            const createListModal = createListModalEl ? new bootstrap.Modal(createListModalEl) : null;
+            const exemptionListModalEl = document.getElementById('exemptionListModal');
+            const exemptionListModal = exemptionListModalEl ? new bootstrap.Modal(exemptionListModalEl) : null;
+            const studentListEl = document.getElementById('exemptionStudentList');
+            const listPickerEl = document.getElementById('exemptionListPicker');
+            const studentSearchEl = document.getElementById('exemptionStudentSearch');
+            const courseFilterEl = document.getElementById('exemptionCourseFilter');
+            const yearFilterEl = document.getElementById('exemptionYearFilter');
+            const countEl = document.getElementById('exemptionCount');
+            const feedbackEl = document.getElementById('exemptionsFeedback');
+            const listTypeEl = document.getElementById('exemptionListType');
+            const listYearGroupEl = document.getElementById('exemptionListYearGroup');
+            const listYearEl = document.getElementById('exemptionListYear');
+            const createListStudentsGroupEl = document.getElementById('createExemptionStudentsGroup');
+            const createListStudentSearchEl = document.getElementById('createExemptionStudentSearch');
+            const createListStudentListEl = document.getElementById('createExemptionStudentList');
+            const createListStudentCountEl = document.getElementById('createExemptionStudentCount');
+            const eventExemptedStudentsEl = document.getElementById('eventExemptedStudents');
+            const editListModalEl = document.getElementById('editExemptionListModal');
+            const editListModal = editListModalEl ? new bootstrap.Modal(editListModalEl) : null;
+            const editListTypeEl = document.getElementById('editExemptionListType');
+            const editListYearGroupEl = document.getElementById('editExemptionListYearGroup');
+            const editListYearEl = document.getElementById('editExemptionListYear');
+            const editListStudentsGroupEl = document.getElementById('editExemptionStudentsGroup');
+            const editListStudentSearchEl = document.getElementById('editExemptionStudentSearch');
+            const editListStudentListEl = document.getElementById('editExemptionStudentList');
+            const editListFeedbackEl = document.getElementById('editExemptionListFeedback');
+            const createListFormEl = document.getElementById('createExemptionListForm');
+            const createListFeedbackEl = document.getElementById('createExemptionListFeedback');
+            const createListSelectionHelpEl = document.getElementById('createExemptionListSelectionHelp');
+            let editingListStudentIds = new Set();
+            let activeEventId = null;
+            let exemptListEventId = null;
+            let students = [];
+            let selectedStudentIdSet = new Set();
+            let createListStudentIdSet = new Set();
+            let openCreateListAfterExemptionsClose = false;
+            let reopenExemptionsAfterCreateListClose = false;
+            let createListSuccessMessage = '';
+
+            function selectedStudentIds() {
+                return [...selectedStudentIdSet];
+            }
+
+            function updateExemptionCount() {
+                countEl.textContent = `${selectedStudentIds().length} selected`;
+            }
+
+            function renderStudents() {
+                const query = (studentSearchEl.value || '').trim().toLowerCase();
+                const selectedCourse = courseFilterEl.value;
+                const selectedYear = yearFilterEl.value;
+                const filtered = students.filter((student) => {
+                    const text = `${student.display_name} ${student.course || ''} ${student.year_level || ''}`.toLowerCase();
+                    return text.includes(query)
+                        && (!selectedCourse || String(student.course || '') === selectedCourse)
+                        && (!selectedYear || String(student.year_level || '') === selectedYear);
+                });
+                if (!filtered.length) {
+                    studentListEl.innerHTML = '<span class="text-muted">No matching students.</span>';
+                    return;
+                }
+                studentListEl.innerHTML = filtered.map((student) => `
+                    <label class="exemption-student-row d-flex align-items-center gap-2 px-2 py-2">
+                        <input class="form-check-input mt-0" type="checkbox" name="exemption-student" value="${student.id}" ${selectedStudentIdSet.has(Number(student.id)) ? 'checked' : ''}>
+                        <span>${student.display_name}</span>
+                        <span class="text-muted small ms-auto">${student.course || ''} · Year ${student.year_level || '—'}</span>
+                    </label>
+                `).join('');
+                updateExemptionCount();
+            }
+
+            function renderCreateListStudents() {
+                const query = (createListStudentSearchEl.value || '').trim().toLowerCase();
+                const filtered = students.filter((student) => {
+                    const text = `${student.display_name} ${student.course || ''} ${student.year_level || ''}`.toLowerCase();
+                    return text.includes(query);
+                });
+                createListStudentListEl.innerHTML = filtered.length ? filtered.map((student) => `
+                    <label class="exemption-student-row d-flex align-items-center gap-2 px-2 py-2">
+                        <input class="form-check-input mt-0" type="checkbox" name="create-exemption-student" value="${student.id}" ${createListStudentIdSet.has(Number(student.id)) ? 'checked' : ''}>
+                        <span>${student.display_name}</span>
+                        <span class="text-muted small ms-auto">${student.course || ''} · Year ${student.year_level || '—'}</span>
+                    </label>
+                `).join('') : '<span class="text-muted">No matching students.</span>';
+                createListStudentCountEl.textContent = `${createListStudentIdSet.size} selected`;
+            }
+
+            function renderLists(lists) {
+                if (!lists.length) {
+                    listPickerEl.innerHTML = '<span class="text-muted">No saved lists yet.</span>';
+                    return;
+                }
+                listPickerEl.innerHTML = lists.map((list) => `
+                    <div class="d-flex align-items-center gap-2 px-2 py-2">
+                        <input class="form-check-input mt-0" type="checkbox" name="exemption-list" value="${list.id}">
+                        <span>${list.name}</span>
+                        <span class="text-muted small ms-auto">${list.year_level ? `Year ${list.year_level}` : `${list.student_count} students`}</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary edit-exemption-list-btn" data-list-id="${list.id}">Edit</button>
+                    </div>
+                `).join('');
+                listPickerEl.querySelectorAll('.edit-exemption-list-btn').forEach((button) => {
+                    button.addEventListener('click', () => openEditList(button.dataset.listId));
+                });
+            }
+
+            function renderEditListStudents() {
+                const query = (editListStudentSearchEl.value || '').trim().toLowerCase();
+                const filtered = students.filter((student) => {
+                    const text = `${student.display_name} ${student.course || ''} ${student.year_level || ''}`.toLowerCase();
+                    return text.includes(query);
+                });
+                editListStudentListEl.innerHTML = filtered.length ? filtered.map((student) => `
+                    <label class="exemption-student-row d-flex align-items-center gap-2 px-2 py-2">
+                        <input class="form-check-input mt-0" type="checkbox" name="edit-exemption-student" value="${student.id}" ${editingListStudentIds.has(Number(student.id)) ? 'checked' : ''}>
+                        <span>${student.display_name}</span>
+                        <span class="text-muted small ms-auto">${student.course || ''} · Year ${student.year_level || '—'}</span>
+                    </label>
+                `).join('') : '<span class="text-muted">No matching students.</span>';
+            }
+
+            function openEditList(listId) {
+                editListFeedbackEl.innerHTML = '';
+                fetch(`/exemption-lists/${listId}`)
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (!data.success) throw new Error(data.message || 'Unable to load exemption list.');
+                        const list = data.list;
+                        document.getElementById('editExemptionListId').value = list.id;
+                        document.getElementById('editExemptionListName').value = list.name;
+                        editingListStudentIds = new Set((list.student_ids || []).map(Number));
+                        editListTypeEl.value = list.year_level ? 'year' : 'students';
+                        editListYearEl.innerHTML = [...new Set(students.map((student) => student.year_level).filter(Boolean))]
+                            .sort((a, b) => String(a).localeCompare(String(b)))
+                            .map((year) => `<option value="${year}" ${String(year) === String(list.year_level) ? 'selected' : ''}>Year ${year}</option>`).join('');
+                        editListYearGroupEl.classList.toggle('d-none', !list.year_level);
+                        editListStudentsGroupEl.classList.toggle('d-none', !!list.year_level);
+                        editListStudentSearchEl.value = '';
+                        renderEditListStudents();
+                        editListModal?.show();
+                    })
+                    .catch((error) => showFeedback(error.message, 'danger'));
+            }
+
+            function showFeedback(message, type) {
+                feedbackEl.innerHTML = `<div class="alert alert-${type} py-2">${message}</div>`;
+            }
+
+            function showCreateListFeedback(message, type) {
+                createListFeedbackEl.innerHTML = `<div class="alert alert-${type} py-2">${message}</div>`;
+            }
+
+            function refreshSavedLists() {
+                if (!activeEventId) return;
+                fetch(`/events/${activeEventId}/exemptions`)
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (!data.success) throw new Error(data.message || 'Unable to refresh saved lists.');
+                        renderLists(data.lists || []);
+                    })
+                    .catch((error) => showFeedback(error.message, 'danger'));
+            }
+
+            function updateCreateListSource() {
+                const isYearList = listTypeEl.value === 'year';
+                listYearGroupEl.classList.toggle('d-none', !isYearList);
+                createListStudentsGroupEl.classList.toggle('d-none', isYearList);
+                listYearEl.disabled = !isYearList;
+                listYearEl.required = isYearList;
+                createListSelectionHelpEl.textContent = isYearList
+                    ? 'The list will include students in the selected year level.'
+                    : `Only the ${createListStudentIdSet.size} student${createListStudentIdSet.size === 1 ? '' : 's'} checked in this window will be added.`;
+            }
+
+            function loadExemptions(button) {
+                activeEventId = button.dataset.eventId;
+                document.getElementById('exemptionsEventName').textContent = button.dataset.eventName;
+                studentSearchEl.value = '';
+                courseFilterEl.value = '';
+                yearFilterEl.value = '';
+                studentListEl.innerHTML = '<span class="text-muted">Loading students...</span>';
+                listPickerEl.innerHTML = '<span class="text-muted">Loading lists...</span>';
+                feedbackEl.innerHTML = '';
+                fetch(`/events/${activeEventId}/exemptions`)
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (!data.success) throw new Error(data.message || 'Unable to load exemptions.');
+                        students = data.students || [];
+                        selectedStudentIdSet = new Set((data.exempted_student_ids || []).map(Number));
+                        courseFilterEl.innerHTML = '<option value="">All Courses</option>'
+                            + [...new Set(students.map((student) => student.course).filter(Boolean))]
+                                .sort((a, b) => String(a).localeCompare(String(b)))
+                                .map((course) => `<option value="${course}">${course}</option>`).join('');
+                        yearFilterEl.innerHTML = '<option value="">All Years</option>'
+                            + [...new Set(students.map((student) => student.year_level).filter(Boolean))]
+                                .sort((a, b) => String(a).localeCompare(String(b)))
+                                .map((year) => `<option value="${year}">Year ${year}</option>`).join('');
+                        listYearEl.innerHTML = [...new Set(students.map((student) => student.year_level).filter(Boolean))]
+                            .sort((a, b) => String(a).localeCompare(String(b)))
+                            .map((year) => `<option value="${year}">${year}</option>`).join('');
+                        renderStudents();
+                        updateExemptionCount();
+                        renderLists(data.lists || []);
+                        updateCreateListSource();
+                    })
+                    .catch((error) => showFeedback(error.message, 'danger'));
+                exemptionsModal?.show();
+            }
+
+            document.querySelectorAll('.exemptions-btn').forEach((button) => {
+                button.addEventListener('click', () => loadExemptions(button));
+            });
+
+            document.getElementById('openCreateExemptionListModal')?.addEventListener('click', () => {
+                document.getElementById('exemptionListName').value = '';
+                listTypeEl.value = 'students';
+                createListStudentIdSet.clear();
+                createListStudentSearchEl.value = '';
+                createListFeedbackEl.innerHTML = '';
+                renderCreateListStudents();
+                updateCreateListSource();
+                openCreateListAfterExemptionsClose = true;
+                exemptionsModal?.hide();
+                if (!exemptionsModal) {
+                    createListModal?.show();
+                    reopenExemptionsAfterCreateListClose = true;
+                }
+            });
+
+            exemptionsModalEl?.addEventListener('hidden.bs.modal', () => {
+                if (!openCreateListAfterExemptionsClose) return;
+                openCreateListAfterExemptionsClose = false;
+                reopenExemptionsAfterCreateListClose = true;
+                createListModal?.show();
+            });
+
+            createListModalEl?.addEventListener('hidden.bs.modal', () => {
+                if (!reopenExemptionsAfterCreateListClose) return;
+                reopenExemptionsAfterCreateListClose = false;
+                exemptionsModal?.show();
+                if (createListSuccessMessage) {
+                    showFeedback(createListSuccessMessage, 'success');
+                    createListSuccessMessage = '';
+                    refreshSavedLists();
+                }
+            });
+
+            document.querySelectorAll('.exemption-list-btn').forEach((button) => {
+                button.addEventListener('click', () => {
+                    exemptListEventId = button.dataset.eventId;
+                    document.getElementById('exemptionListEventName').textContent = button.dataset.eventName;
+                    eventExemptedStudentsEl.innerHTML = '<span class="text-muted">Loading students...</span>';
+                    fetch(`/events/${button.dataset.eventId}/exemptions`)
+                        .then((response) => response.json())
+                        .then((data) => {
+                            if (!data.success) throw new Error(data.message || 'Unable to load the exempt list.');
+                            if (!data.exempted_students.length) {
+                                eventExemptedStudentsEl.innerHTML = '<div class="text-muted text-center py-4">No students are exempted for this event.</div>';
+                                return;
+                            }
+                            eventExemptedStudentsEl.innerHTML = data.exempted_students.map((student) => `
+                                <div class="event-exempted-student">
+                                    <div>
+                                        <span>${student.display_name}</span>
+                                        <span class="text-muted small d-block">${student.course || ''} · Year ${student.year_level || '—'}</span>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-danger remove-event-exemption-btn" data-student-id="${student.id}">Remove</button>
+                                </div>
+                            `).join('');
+                            eventExemptedStudentsEl.querySelectorAll('.remove-event-exemption-btn').forEach((removeButton) => {
+                                removeButton.addEventListener('click', () => {
+                                    removeButton.disabled = true;
+                                    fetch(`/events/${exemptListEventId}/exemptions/${removeButton.dataset.studentId}`, {method: 'DELETE'})
+                                        .then((response) => response.json().then((result) => ({ok: response.ok, result})))
+                                        .then(({ok, result}) => {
+                                            if (!ok || !result.success) throw new Error(result.message || 'Unable to remove exemption.');
+                                            button.click();
+                                        })
+                                        .catch((error) => {
+                                            eventExemptedStudentsEl.insertAdjacentHTML('beforebegin', `<div class="alert alert-danger py-2">${error.message}</div>`);
+                                            removeButton.disabled = false;
+                                        });
+                                });
+                            });
+                        })
+                        .catch((error) => {
+                            eventExemptedStudentsEl.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+                        });
+                    exemptionListModal?.show();
+                });
+            });
+
+            studentSearchEl?.addEventListener('input', renderStudents);
+            courseFilterEl?.addEventListener('change', renderStudents);
+            yearFilterEl?.addEventListener('change', renderStudents);
+            createListStudentSearchEl?.addEventListener('input', renderCreateListStudents);
+            createListStudentListEl?.addEventListener('change', (event) => {
+                const input = event.target.closest('input[name="create-exemption-student"]');
+                if (!input) return;
+                const studentId = Number(input.value);
+                if (input.checked) createListStudentIdSet.add(studentId);
+                else createListStudentIdSet.delete(studentId);
+                createListStudentCountEl.textContent = `${createListStudentIdSet.size} selected`;
+                updateCreateListSource();
+            });
+            document.getElementById('selectVisibleCreateExemptionStudents')?.addEventListener('click', () => {
+                const query = (createListStudentSearchEl.value || '').trim().toLowerCase();
+                students.filter((student) => {
+                    const text = `${student.display_name} ${student.course || ''} ${student.year_level || ''}`.toLowerCase();
+                    return text.includes(query);
+                }).forEach((student) => createListStudentIdSet.add(Number(student.id)));
+                renderCreateListStudents();
+                updateCreateListSource();
+            });
+            document.getElementById('clearCreateExemptionStudents')?.addEventListener('click', () => {
+                createListStudentIdSet.clear();
+                renderCreateListStudents();
+                updateCreateListSource();
+            });
+            editListStudentSearchEl?.addEventListener('input', renderEditListStudents);
+            editListTypeEl?.addEventListener('change', () => {
+                const isYearList = editListTypeEl.value === 'year';
+                editListYearGroupEl.classList.toggle('d-none', !isYearList);
+                editListStudentsGroupEl.classList.toggle('d-none', isYearList);
+            });
+            editListStudentListEl?.addEventListener('change', (event) => {
+                const input = event.target.closest('input[name="edit-exemption-student"]');
+                if (!input) return;
+                const studentId = Number(input.value);
+                if (input.checked) editingListStudentIds.add(studentId);
+                else editingListStudentIds.delete(studentId);
+            });
+
+            document.getElementById('saveExemptionListButton')?.addEventListener('click', () => {
+                const listId = document.getElementById('editExemptionListId').value;
+                const isYearList = editListTypeEl.value === 'year';
+                const payload = {
+                    name: document.getElementById('editExemptionListName').value,
+                    student_ids: isYearList ? [] : [...editingListStudentIds],
+                    year_level: isYearList ? editListYearEl.value : null
+                };
+                fetch(`/exemption-lists/${listId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                })
+                    .then((response) => response.json().then((data) => ({ok: response.ok, data})))
+                    .then(({ok, data}) => {
+                        if (!ok || !data.success) throw new Error(data.message || 'Unable to save exemption list.');
+                        editListModal?.hide();
+                        if (activeEventId) {
+                            loadExemptions({dataset: {
+                                eventId: activeEventId,
+                                eventName: document.getElementById('exemptionsEventName').textContent
+                            }});
+                        }
+                    })
+                    .catch((error) => {
+                        editListFeedbackEl.innerHTML = `<div class="alert alert-danger py-2">${error.message}</div>`;
+                    });
+            });
+            studentListEl?.addEventListener('change', (event) => {
+                const input = event.target.closest('input[name="exemption-student"]');
+                if (input) {
+                    const studentId = Number(input.value);
+                    if (input.checked) selectedStudentIdSet.add(studentId);
+                    else selectedStudentIdSet.delete(studentId);
+                }
+                updateExemptionCount();
+            });
+            listTypeEl?.addEventListener('change', updateCreateListSource);
+
+            document.getElementById('saveExemptionsButton')?.addEventListener('click', () => {
+                const studentIds = selectedStudentIds();
+                const listIds = [...listPickerEl.querySelectorAll('input[name="exemption-list"]:checked')].map((input) => Number(input.value));
+                fetch(`/events/${activeEventId}/exemptions`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({student_ids: studentIds, list_ids: listIds})
+                })
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (!data.success) throw new Error(data.message || 'Unable to save exemptions.');
+                        selectedStudentIdSet.clear();
+                        listPickerEl.querySelectorAll('input[name="exemption-list"]').forEach((input) => {
+                            input.checked = false;
+                        });
+                        renderStudents();
+                        showFeedback(`${data.count} student${data.count === 1 ? '' : 's'} exempted for this event.`, 'success');
+                    })
+                    .catch((error) => showFeedback(error.message, 'danger'));
+            });
+
+            createListFormEl?.addEventListener('submit', (event) => {
+                event.preventDefault();
+                const isYearList = listTypeEl.value === 'year';
+                const studentIds = isYearList ? [] : [...createListStudentIdSet];
+                if (!isYearList && !studentIds.length) {
+                    showCreateListFeedback('Select at least one student in this window, or choose Year level.', 'warning');
+                    return;
+                }
+                const payload = {
+                    name: document.getElementById('exemptionListName').value,
+                    student_ids: studentIds,
+                    year_level: isYearList ? listYearEl.value : null
+                };
+                fetch('/exemption-lists', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                })
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (!data.success) throw new Error(data.message || 'Unable to create list.');
+                        createListSuccessMessage = 'Exemption list created.';
+                        createListFormEl.reset();
+                        createListStudentIdSet.clear();
+                        renderCreateListStudents();
+                        updateCreateListSource();
+                        reopenExemptionsAfterCreateListClose = true;
+                        createListModal?.hide();
+                    })
+                    .catch((error) => showCreateListFeedback(error.message, 'danger'));
             });
         });
     </script>

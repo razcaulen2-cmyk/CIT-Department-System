@@ -190,6 +190,7 @@ body {
     border: 1px solid rgba(212, 175, 55, 0.22);
     border-radius: 24px;
     box-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
 }
 
 .modal-header {
@@ -218,8 +219,11 @@ body {
 }
 
 .modal-content .card {
+    margin: 0;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 0;
+    border-radius: inherit;
+    box-shadow: none;
 }
 
 .modal-content .card .card-header,
@@ -231,6 +235,10 @@ body {
 .modal-content .btn-close {
     filter: invert(1);
     opacity: 0.8;
+}
+
+.rfid-scan-image {
+    filter: hue-rotate(218deg);
 }
 
 .site-footer {
@@ -262,5 +270,3 @@ body {
     text-transform: uppercase;
     font-family: "Segoe UI", sans-serif;
 }
-
-

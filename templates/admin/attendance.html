@@ -23,7 +23,7 @@ Attendance
     <div class="card shadow-sm mb-4">
         <div class="card-body">
             <form method="get" action="/attendance" class="row g-3">
-                <div class="col-md-3">
+                <div class="col-md-4">
                     <label class="form-label">Academic Year</label>
                     <select name="academic_year" class="form-select">
                         <option value="">-- All academic years --</option>
@@ -32,81 +32,89 @@ Attendance
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Event</label>
-                    <select name="event_id" class="form-select">
-                        <option value="">-- All events --</option>
-                        {% for ev in events %}
-                        <option value="{{ ev.id }}" {% if ev.id == selected_event_id %}selected{% endif %}>{{ ev.name }} — {{ ev.date }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Course</label>
-                    <select name="course" class="form-select">
-                        <option value="">-- All courses --</option>
-                        {% for c in courses %}
-                        <option value="{{ c }}" {% if c == selected_course %}selected{% endif %}>{{ c }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Year level</label>
-                    <select name="year_level" class="form-select">
-                        <option value="">-- All years --</option>
-                        {% for y in year_levels %}
-                        <option value="{{ y }}" {% if y|string == selected_year_level|string %}selected{% endif %}>{{ y }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-12 text-end">
-                    <button class="btn btn-outline-secondary me-2" type="button" data-bs-toggle="modal" data-bs-target="#generateReportModal">Generate Report</button>
+                <div class="col-md-8 d-flex align-items-end justify-content-md-end">
                     <button class="btn btn-primary">Filter</button>
                 </div>
             </form>
         </div>
     </div>
 
-    {% if event_groups %}
-        {% for group in event_groups %}
-        <div class="card shadow-sm mb-4">
-            <div class="card-header">
-                <strong>{{ group.event.name }}</strong> — {{ group.event.date }}
-            </div>
-            <div class="card-body">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Student</th>
-                            <th>Course</th>
-                            <th>Login Time</th>
-                            <th>Logout Time</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for r in group.rows %}
-                        <tr>
-                            <td>{{ r.lastname }}, {{ r.firstname }}</td>
-                            <td>{{ r.course }} - {{ r.year_level }}</td>
-                            <td>{{ r.login_time or '—' }}</td>
-                            <td>{{ r.logout_time or '—' }}</td>
-                            <td>{{ r.status }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="5" class="text-muted">No students found for this event.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    {% if events %}
+        <div class="card shadow-sm attendance-event-list-card">
+            <div class="card-header">Events</div>
+            <div class="list-group list-group-flush">
+                {% for ev in events %}
+                <button type="button" class="list-group-item list-group-item-action attendance-event-item" data-event-id="{{ ev.id }}" data-event-name="{{ ev.name }}" data-event-date="{{ ev.date }}">
+                    <span>
+                        <strong>{{ ev.name }}</strong>
+                        <span class="text-muted d-block small">{{ ev.date }}</span>
+                    </span>
+                    <span class="btn btn-sm btn-outline-primary">View attendance</span>
+                </button>
+                {% endfor %}
             </div>
         </div>
-        {% endfor %}
     {% else %}
         <div class="card shadow-sm">
-            <div class="card-body text-muted">No attendance data available for the selected filters.</div>
+            <div class="card-body text-muted">No events found for the selected academic year.</div>
         </div>
     {% endif %}
 
+</div>
+
+<!-- Event Attendance Modal -->
+<div class="modal fade" id="attendanceEventModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered attendance-event-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="attendanceEventModalTitle">Attendance</h5>
+                    <p class="text-muted small mb-0" id="attendanceEventModalDate"></p>
+                </div>
+                <div class="attendance-modal-header-tools">
+                    <label class="visually-hidden" for="attendanceStudentSearch">Search students</label>
+                    <input type="search" id="attendanceStudentSearch" class="form-control" placeholder="Search students">
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <form id="attendanceEventFilterForm" class="row g-3 align-items-end mb-3">
+                    <div class="col-md-5">
+                        <label class="form-label" for="attendanceCourseFilter">Course</label>
+                        <select id="attendanceCourseFilter" class="form-select">
+                            <option value="">All courses</option>
+                            {% for c in courses %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label" for="attendanceYearFilter">Year level</label>
+                        <select id="attendanceYearFilter" class="form-select">
+                            <option value="">All years</option>
+                            {% for y in year_levels %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary w-100">Filter</button>
+                    </div>
+                </form>
+                <div id="attendanceEventFeedback"></div>
+                <div class="table-responsive attendance-event-table-wrap">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr><th>Student</th><th>Course</th><th>Login Time</th><th>Logout Time</th><th>Status</th><th>Source</th><th>Paper action</th></tr>
+                        </thead>
+                        <tbody id="attendanceEventRows">
+                            <tr><td colspan="7" class="text-muted text-center">Select an event to load attendance.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="attendanceGenerateReportButton">Generate Report</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Generate Report Modal -->
@@ -122,10 +130,10 @@ Attendance
                     <div class="row g-3">
                         <div class="col-md-6">
                             <label class="form-label">Attendance Event</label>
-                            <select name="event_id" class="form-select" required>
+                            <select name="event_id" id="reportEventSelect" class="form-select" required>
                                 <option value="">-- Select event --</option>
                                 {% for ev in events %}
-                                <option value="{{ ev.id }}" {% if ev.id == selected_event_id %}selected{% endif %}>{{ ev.name }} — {{ ev.date }}</option>
+                                <option value="{{ ev.id }}">{{ ev.name }} — {{ ev.date }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -189,6 +197,264 @@ Attendance
         </div>
     </div>
 </div>
+
+<style>
+.attendance-event-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    text-align: left;
+    padding: 16px 20px;
+    color: var(--text);
+    background: #141414;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.attendance-event-item:hover,
+.attendance-event-item:focus {
+    color: var(--text);
+    background: rgba(212, 175, 55, 0.08);
+    border-color: rgba(212, 175, 55, 0.25);
+}
+
+.attendance-event-item .btn {
+    pointer-events: none;
+}
+
+.attendance-event-dialog .modal-content {
+    max-height: 88vh;
+}
+
+.attendance-event-dialog .modal-body {
+    overflow: hidden;
+}
+
+.attendance-event-table-wrap {
+    max-height: 48vh;
+    overflow-y: auto;
+    border: 1px solid rgba(212, 175, 55, 0.12);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(212, 175, 55, 0.65) rgba(255, 255, 255, 0.04);
+}
+
+.attendance-event-table-wrap::-webkit-scrollbar {
+    width: 10px;
+}
+
+.attendance-event-table-wrap::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.attendance-event-table-wrap::-webkit-scrollbar-thumb {
+    background: rgba(212, 175, 55, 0.65);
+    border: 2px solid #141414;
+    border-radius: 8px;
+}
+
+.attendance-event-table-wrap::-webkit-scrollbar-thumb:hover {
+    background: rgba(212, 175, 55, 0.9);
+}
+
+.attendance-event-table-wrap table {
+    min-width: 980px;
+    table-layout: fixed;
+}
+
+.attendance-event-table-wrap th,
+.attendance-event-table-wrap td {
+    vertical-align: middle;
+}
+
+.attendance-event-table-wrap th:nth-child(1),
+.attendance-event-table-wrap td:nth-child(1) {
+    width: 27%;
+}
+
+.attendance-event-table-wrap th:nth-child(2),
+.attendance-event-table-wrap td:nth-child(2) {
+    width: 15%;
+}
+
+.attendance-event-table-wrap th:nth-child(3),
+.attendance-event-table-wrap td:nth-child(3),
+.attendance-event-table-wrap th:nth-child(4),
+.attendance-event-table-wrap td:nth-child(4),
+.attendance-event-table-wrap th:nth-child(5),
+.attendance-event-table-wrap td:nth-child(5) {
+    width: 11%;
+}
+
+.attendance-event-table-wrap th:nth-child(6),
+.attendance-event-table-wrap td:nth-child(6) {
+    width: 10%;
+}
+
+.attendance-event-table-wrap th:nth-child(7),
+.attendance-event-table-wrap td:nth-child(7) {
+    width: 15%;
+}
+
+.paper-attendance-select {
+    min-width: 142px;
+    padding: 5px 10px;
+    font-size: 0.8rem;
+}
+
+.attendance-modal-header-tools {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+}
+
+.attendance-modal-header-tools .form-control {
+    width: min(300px, 32vw);
+    min-width: 180px;
+    padding: 8px 14px;
+}
+
+@media (max-width: 640px) {
+    .attendance-modal-header-tools {
+        gap: 8px;
+    }
+
+    .attendance-modal-header-tools .form-control {
+        width: 170px;
+        min-width: 0;
+    }
+}
+
+.attendance-event-table-wrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #1d1c17 !important;
+    box-shadow: 0 1px 0 rgba(212, 175, 55, 0.18);
+}
+
+.attendance-status-present { color: #a5d6a7; }
+.attendance-status-late { color: #fcd34d; }
+.attendance-status-absent { color: #ff8a80; }
+.attendance-status-exempted { color: #93c5fd; }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const attendanceModalElement = document.getElementById('attendanceEventModal');
+    const attendanceModal = new bootstrap.Modal(attendanceModalElement);
+    const attendanceRows = document.getElementById('attendanceEventRows');
+    const feedback = document.getElementById('attendanceEventFeedback');
+    const courseFilter = document.getElementById('attendanceCourseFilter');
+    const yearFilter = document.getElementById('attendanceYearFilter');
+    const studentSearch = document.getElementById('attendanceStudentSearch');
+    const reportEventSelect = document.getElementById('reportEventSelect');
+    let activeEventId = null;
+    let loadedRows = [];
+
+    function attachPaperAttendanceHandlers() {
+        attendanceRows.querySelectorAll('.paper-attendance-select').forEach((select) => {
+            select.addEventListener('change', function () {
+                const status = this.value || 'clear';
+                this.disabled = true;
+                fetch(`/attendance/event/${activeEventId}/paper`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({student_id: this.dataset.studentId, status})
+                })
+                    .then((response) => response.json().then((data) => ({ok: response.ok, data})))
+                    .then(({ok, data}) => {
+                        if (!ok || !data.success) throw new Error(data.message || 'Unable to update paper attendance.');
+                        loadEventAttendance();
+                    })
+                    .catch((error) => {
+                        feedback.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+                        this.disabled = false;
+                    });
+            });
+        });
+    }
+
+    function renderAttendanceRows() {
+        const query = studentSearch.value.trim().toLowerCase();
+        const rows = loadedRows.filter((row) => {
+            const searchable = `${row.lastname}, ${row.firstname} ${row.course || ''} ${row.year_level || ''} ${row.status} ${row.source}`.toLowerCase();
+            return searchable.includes(query);
+        });
+        if (!rows.length) {
+            attendanceRows.innerHTML = '<tr><td colspan="7" class="text-muted text-center">No students match your search.</td></tr>';
+            return;
+        }
+        attendanceRows.innerHTML = rows.map((row) => `
+            <tr>
+                <td>${row.lastname}, ${row.firstname}</td>
+                <td>${row.course || ''} - ${row.year_level || ''}</td>
+                <td>${row.login_time || '—'}</td>
+                <td>${row.logout_time || '—'}</td>
+                <td class="attendance-status-${row.status.toLowerCase()}">${row.status}</td>
+                <td>${row.source}</td>
+                <td>
+                    <select class="form-select paper-attendance-select" data-student-id="${row.student_id}" ${row.status === 'Exempted' ? 'disabled' : ''}>
+                        <option value="">System / not recorded</option>
+                        <option value="present" ${row.source === 'Paper' && row.status === 'Present' ? 'selected' : ''}>Paper: Present</option>
+                        <option value="late" ${row.source === 'Paper' && row.status === 'Late' ? 'selected' : ''}>Paper: Late</option>
+                    </select>
+                </td>
+            </tr>
+        `).join('');
+        attachPaperAttendanceHandlers();
+    }
+
+    function loadEventAttendance() {
+        if (!activeEventId) return;
+        attendanceRows.innerHTML = '<tr><td colspan="7" class="text-muted text-center">Loading attendance...</td></tr>';
+        feedback.innerHTML = '';
+        const params = new URLSearchParams({
+            course: courseFilter.value,
+            year_level: yearFilter.value
+        });
+        fetch(`/attendance/event/${activeEventId}?${params}`)
+            .then((response) => response.json().then((data) => ({ok: response.ok, data})))
+            .then(({ok, data}) => {
+                if (!ok || !data.success) throw new Error(data.message || 'Unable to load attendance.');
+                loadedRows = data.rows;
+                renderAttendanceRows();
+            })
+            .catch((error) => {
+                feedback.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+                attendanceRows.innerHTML = '';
+            });
+
+    }
+
+    document.querySelectorAll('.attendance-event-item').forEach((button) => {
+        button.addEventListener('click', function () {
+            activeEventId = this.dataset.eventId;
+            document.getElementById('attendanceEventModalTitle').textContent = this.dataset.eventName;
+            document.getElementById('attendanceEventModalDate').textContent = this.dataset.eventDate;
+            courseFilter.value = '';
+            yearFilter.value = '';
+            studentSearch.value = '';
+            if (reportEventSelect) reportEventSelect.value = activeEventId;
+            attendanceModal.show();
+            loadEventAttendance();
+        });
+    });
+
+    document.getElementById('attendanceEventFilterForm').addEventListener('submit', function (event) {
+        event.preventDefault();
+        loadEventAttendance();
+    });
+
+    studentSearch.addEventListener('input', renderAttendanceRows);
+
+    document.getElementById('attendanceGenerateReportButton').addEventListener('click', function () {
+        if (reportEventSelect) reportEventSelect.value = activeEventId;
+        attendanceModal.hide();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('generateReportModal')).show();
+    });
+});
+</script>
 
 {% endblock %}
 

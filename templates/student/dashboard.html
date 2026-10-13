@@ -7,11 +7,37 @@ Student Dashboard
 {% block content %}
 
 <div class="container-fluid py-4">
-    <div class="page-header">
+    <div class="panel-intro mb-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
         <div>
-            <div class="eyebrow">STUDENT DASHBOARD</div>
-            <h1>Welcome back, {{ student.firstname|upper }} {{ student.lastname|upper }}</h1>
-            <p class="text-muted">Your current fund and fine balances are shown below.</p>
+            <p class="eyebrow">STUDENT DASHBOARD</p>
+            <h3 class="mb-1">Welcome back, {{ student.firstname|upper }} {{ student.lastname|upper }}</h3>
+            <p class="text-muted mb-0">Your current fund and fine balances are shown below.</p>
+        </div>
+        <button type="button" class="btn btn-outline-warning rounded-pill px-4" id="openStudentAttendance">
+            <i class="bi bi-calendar2-check"></i> List of Attendance
+        </button>
+    </div>
+
+    <div class="modal fade" id="studentAttendanceModal" tabindex="-1" aria-labelledby="studentAttendanceTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="studentAttendanceTitle">List of Attendance</h5>
+                        <p class="text-muted small mb-0">{{ student.firstname }} {{ student.lastname }}</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="studentAttendanceFeedback"></div>
+                    <div class="student-attendance-list" id="studentAttendanceList">
+                        <div class="text-muted text-center py-4">Loading attendance...</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -45,7 +71,7 @@ Student Dashboard
             <div class="card shadow-sm h-100">
                 <div class="card-body text-center">
                     <div class="text-muted small mb-2">Department Fund</div>
-                    <div class="h2 text-primary fw-bold">₱0.00</div>
+                    <div class="h2 text-primary fw-bold">₱{{ "%.2f"|format(total_funds) }}</div>
                 </div>
             </div>
         </div>
@@ -53,7 +79,7 @@ Student Dashboard
             <div class="card shadow-sm h-100">
                 <div class="card-body text-center">
                     <div class="text-muted small mb-2">Department Fine</div>
-                    <div class="h2 text-danger fw-bold">₱0.00</div>
+                    <div class="h2 text-danger fw-bold">₱{{ "%.2f"|format(total_fines) }}</div>
                 </div>
             </div>
         </div>
@@ -61,7 +87,7 @@ Student Dashboard
             <div class="card shadow-sm h-100">
                 <div class="card-body text-center">
                     <div class="text-muted small mb-2">Total Balance</div>
-                    <div class="h2 text-success fw-bold">₱0.00</div>
+                    <div class="h2 text-success fw-bold">₱{{ "%.2f"|format(total_balance) }}</div>
                 </div>
             </div>
         </div>
@@ -92,5 +118,58 @@ Student Dashboard
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const modalElement = document.getElementById('studentAttendanceModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+    const listElement = document.getElementById('studentAttendanceList');
+    const feedbackElement = document.getElementById('studentAttendanceFeedback');
+
+    document.getElementById('openStudentAttendance').addEventListener('click', async function () {
+        feedbackElement.innerHTML = '';
+        listElement.innerHTML = '<div class="text-muted text-center py-4">Loading attendance...</div>';
+        modal.show();
+
+        try {
+            const response = await fetch('/student/attendance');
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error(response.redirected ? 'Your student session has expired. Please log in again.' : 'The attendance service returned an unexpected response.');
+            }
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'Unable to load attendance.');
+            }
+            if (!data.events.length) {
+                listElement.innerHTML = '<div class="text-muted text-center py-4">No events have been created.</div>';
+                return;
+            }
+            listElement.replaceChildren();
+            data.events.forEach((event) => {
+                const statusClass = event.status.toLowerCase();
+                const row = document.createElement('div');
+                row.className = 'student-attendance-row';
+                const eventName = document.createElement('span');
+                eventName.textContent = event.event_name;
+                const eventDate = document.createElement('span');
+                eventDate.className = 'student-attendance-date text-muted small';
+                eventDate.textContent = event.event_date;
+                const status = document.createElement('span');
+                status.className = `badge student-attendance-status student-attendance-status-${statusClass}`;
+                status.textContent = event.status;
+                row.append(eventName, eventDate, status);
+                listElement.append(row);
+            });
+        } catch (error) {
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger';
+            alert.textContent = error.message;
+            feedbackElement.replaceChildren(alert);
+            listElement.innerHTML = '';
+        }
+    });
+});
+</script>
 
 {% endblock %}

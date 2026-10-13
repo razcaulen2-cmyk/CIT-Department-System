@@ -1,7 +1,14 @@
 from config import get_db_connection
 
 
+_attendance_table_ready = False
+
+
 def ensure_attendance_table():
+	global _attendance_table_ready
+	if _attendance_table_ready:
+		return
+
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	cursor.execute(
@@ -18,7 +25,9 @@ def ensure_attendance_table():
 		"""
 	)
 	conn.commit()
+	cursor.close()
 	conn.close()
+	_attendance_table_ready = True
 
 
 def record_attendance(event_id, student_id, status, timestamp):

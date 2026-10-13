@@ -14,7 +14,7 @@ Student Inquiry
                     <h2 class="mb-0">Student Inquiry</h2>
                 </div>
                 <div class="card-body text-center p-5">
-                    <img src="{{ url_for('static', filename='images/rfid.png') }}" width="170" class="mb-4">
+                    <img src="{{ url_for('static', filename='images/rfid.png') }}" width="170" class="mb-4 rfid-scan-image" alt="RFID card scanner">
                     <h3 class="fw-bold">Please Tap Your Student ID</h3>
                     <p id="status" class="text-muted fs-5">Waiting for RFID card...</p>
                     <input type="text" id="student_id" autocomplete="off" style="position:absolute; left:-9999px; width:1px; height:1px; opacity:0;">

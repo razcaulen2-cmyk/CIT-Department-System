@@ -58,7 +58,7 @@
 
     <!-- Sidebar -->
 
-    <aside class="sidebar">
+    <aside class="sidebar" id="adminSidebar">
 
         <div class="logo">
             <img src="{{ url_for('static', filename='images/cit-logo.png') }}" alt="CIT logo" class="sidebar-logo">
@@ -80,9 +80,9 @@
             </li>
 
             <li class="dropdown-menu-item">
-                <button class="dropdown-toggle" onclick="toggleDropdown(this)">
+                <button class="sidebar-dropdown-toggle" onclick="toggleDropdown(this)">
                     <i class="bi bi-stack"></i>
-                    Management
+                    <span>Management</span>
                     <i class="bi bi-chevron-down dropdown-chevron"></i>
                 </button>
                 <ul class="dropdown-submenu" style="display: none;">
@@ -92,9 +92,9 @@
             </li>
 
             <li class="dropdown-menu-item">
-                <button class="dropdown-toggle" onclick="toggleDropdown(this)">
+                <button class="sidebar-dropdown-toggle" onclick="toggleDropdown(this)">
                     <i class="bi bi-cash-coin"></i>
-                    Finance
+                    <span>Finance</span>
                     <i class="bi bi-chevron-down dropdown-chevron"></i>
                 </button>
                 <ul class="dropdown-submenu" style="display: none;">
@@ -104,9 +104,9 @@
             </li>
 
             <li class="dropdown-menu-item">
-                <button class="dropdown-toggle" onclick="toggleDropdown(this)">
+                <button class="sidebar-dropdown-toggle" onclick="toggleDropdown(this)">
                     <i class="bi bi-calendar-event"></i>
-                    Events & Attendance
+                    <span>Events &amp; Attendance</span>
                     <i class="bi bi-chevron-down dropdown-chevron"></i>
                 </button>
                 <ul class="dropdown-submenu" style="display: none;">
@@ -144,7 +144,15 @@
         <!-- Topbar -->
 
         <nav class="topbar">
-
+            <button
+                type="button"
+                class="sidebar-toggle"
+                id="sidebarToggle"
+                aria-label="Open navigation menu"
+                aria-controls="adminSidebar"
+                aria-expanded="false">
+                <i class="bi bi-list" aria-hidden="true"></i>
+            </button>
             <h3>
 
                 {% block page_title %}
@@ -192,6 +200,25 @@
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 
 <script>
+function setSidebarOpen(isOpen) {
+    const wrapper = document.querySelector('.wrapper');
+    const sidebar = document.getElementById('adminSidebar');
+    const toggle = document.getElementById('sidebarToggle');
+    if (!wrapper || !sidebar || !toggle) return;
+
+    wrapper.classList.toggle('sidebar-open', isOpen);
+    document.body.classList.toggle('sidebar-open', isOpen);
+    toggle.setAttribute('aria-expanded', String(isOpen));
+    toggle.setAttribute('aria-label', isOpen ? 'Close navigation menu' : 'Open navigation menu');
+    sidebar.inert = window.matchMedia('(max-width: 900px)').matches && !isOpen;
+    sidebar.setAttribute('aria-hidden', String(sidebar.inert));
+    const icon = toggle.querySelector('i');
+    if (icon) {
+        icon.classList.toggle('bi-x', isOpen);
+        icon.classList.toggle('bi-list', !isOpen);
+    }
+}
+
 function toggleDropdown(button) {
     const submenu = button.nextElementSibling;
     submenu.style.display = submenu.style.display === 'none' ? 'block' : 'none';
@@ -209,6 +236,51 @@ function updateTopbarClock() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('adminSidebar');
+
+    if (sidebarToggle && sidebar) {
+        const mobileLayout = window.matchMedia('(max-width: 900px)');
+        const setMobileState = () => {
+            if (mobileLayout.matches) {
+                setSidebarOpen(false);
+            } else {
+                document.querySelector('.wrapper')?.classList.remove('sidebar-open');
+                document.body.classList.remove('sidebar-open');
+                sidebar.inert = false;
+                sidebar.setAttribute('aria-hidden', 'false');
+                sidebarToggle.setAttribute('aria-expanded', 'false');
+                sidebarToggle.setAttribute('aria-label', 'Open navigation menu');
+                sidebarToggle.querySelector('i')?.classList.replace('bi-x', 'bi-list');
+            }
+        };
+
+        sidebarToggle.addEventListener('click', () => {
+            setSidebarOpen(sidebarToggle.getAttribute('aria-expanded') !== 'true');
+        });
+
+        mobileLayout.addEventListener('change', setMobileState);
+        setMobileState();
+
+        document.addEventListener('click', event => {
+            if (
+                mobileLayout.matches &&
+                sidebarToggle.getAttribute('aria-expanded') === 'true' &&
+                !sidebar.contains(event.target) &&
+                !sidebarToggle.contains(event.target)
+            ) {
+                setSidebarOpen(false);
+            }
+        });
+
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && mobileLayout.matches) {
+                setSidebarOpen(false);
+                sidebarToggle.focus();
+            }
+        });
+    }
+
     updateTopbarClock();
     setInterval(updateTopbarClock, 1000);
 });

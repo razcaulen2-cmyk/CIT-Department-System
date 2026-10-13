@@ -23,6 +23,97 @@ def events_list():
     return render_template('admin/events.html', events=events)
 
 
+@events_bp.route('/events/<int:event_id>/exemptions', methods=['GET', 'POST'])
+@require_admin
+def event_exemptions(event_id):
+    event = event_model.get_event(event_id)
+    if not event:
+        return jsonify({'success': False, 'message': 'Event not found'}), 404
+
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form
+        student_ids = data.get('student_ids', [])
+        list_ids = data.get('list_ids', [])
+        if isinstance(student_ids, str):
+            student_ids = [value for value in student_ids.split(',') if value]
+        if isinstance(list_ids, str):
+            list_ids = [value for value in list_ids.split(',') if value]
+        try:
+            resolved_ids = {int(student_id) for student_id in student_ids}
+            resolved_ids.update(event_model.get_exemption_list_student_ids(list_ids))
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'Invalid exemption selection'}), 400
+        event_model.save_event_exemptions(event_id, resolved_ids)
+        event_model.sync_fines_for_event(event)
+        return jsonify({'success': True, 'count': len(resolved_ids)})
+
+    students = student_model.get_all_students()
+    for student in students:
+        student['display_name'] = f"{student.get('lastname', '')}, {student.get('firstname', '')}".strip(', ')
+    exempted_student_ids = event_model.get_event_exemption_ids(event_id)
+    return jsonify({
+        'success': True,
+        'event': {'id': event['id'], 'name': event['name']},
+        'students': students,
+        'exempted_student_ids': sorted(exempted_student_ids),
+        'exempted_students': [student for student in students if student.get('id') in exempted_student_ids],
+        'lists': event_model.get_exemption_lists(),
+    })
+
+
+@events_bp.route('/events/<int:event_id>/exemptions/<int:student_id>', methods=['DELETE'])
+@require_admin
+def remove_event_exemption(event_id, student_id):
+    event = event_model.get_event(event_id)
+    if not event:
+        return jsonify({'success': False, 'message': 'Event not found'}), 404
+    event_model.remove_event_exemption(event_id, student_id)
+    event_model.sync_fines_for_event(event)
+    return jsonify({'success': True})
+
+
+@events_bp.route('/exemption-lists', methods=['POST'])
+@require_admin
+def create_exemption_list():
+    data = request.get_json(silent=True) or request.form
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'message': 'List name is required'}), 400
+    student_ids = data.get('student_ids', [])
+    if isinstance(student_ids, str):
+        student_ids = [value for value in student_ids.split(',') if value]
+    try:
+        student_ids = [int(student_id) for student_id in student_ids]
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Invalid student selection'}), 400
+    list_id = event_model.create_exemption_list(name, student_ids, data.get('year_level') or None)
+    return jsonify({'success': True, 'list': {'id': list_id, 'name': name, 'year_level': data.get('year_level') or None}})
+
+
+@events_bp.route('/exemption-lists/<int:list_id>', methods=['GET', 'PUT'])
+@require_admin
+def edit_exemption_list(list_id):
+    if request.method == 'GET':
+        exemption_list = event_model.get_exemption_list(list_id)
+        if not exemption_list:
+            return jsonify({'success': False, 'message': 'Exemption list not found'}), 404
+        return jsonify({'success': True, 'list': exemption_list})
+
+    data = request.get_json(silent=True) or request.form
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'success': False, 'message': 'List name is required'}), 400
+    student_ids = data.get('student_ids', [])
+    if isinstance(student_ids, str):
+        student_ids = [value for value in student_ids.split(',') if value]
+    try:
+        student_ids = [int(student_id) for student_id in student_ids]
+        event_model.update_exemption_list(list_id, name, student_ids, data.get('year_level') or None)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Invalid student selection'}), 400
+    return jsonify({'success': True})
+
+
 @events_bp.route('/events/create', methods=['POST'])
 @require_admin
 def create_event():
@@ -200,6 +291,8 @@ def format_academic_year(date_value):
 
 def build_attendance_rows(event, students, course=None, year_level=None):
     attendance_records = attendance_model.get_attendance_by_event(event['id'])
+    exempted_student_ids = event_model.get_event_exemption_ids(event['id'])
+    paper_attendance = event_model.get_paper_attendance_for_event(event['id'])
     attendance_by_student = {}
     for record in attendance_records:
         attendance_by_student.setdefault(record['student_id'], []).append(record)
@@ -219,13 +312,20 @@ def build_attendance_rows(event, students, course=None, year_level=None):
         login_record = next((r for r in student_records if r['status'] == 'login'), None)
         logout_record = next((r for r in student_records if r['status'] == 'logout'), None)
 
-        # Determine status based on event configuration
-        if has_login_window and not has_logout_window:
+        if student['id'] in exempted_student_ids:
+            status = 'Exempted'
+            source = 'Exemption'
+        elif student['id'] in paper_attendance:
+            status = 'Present' if paper_attendance[student['id']] == 'present' else 'Late'
+            source = 'Paper'
+        elif has_login_window and not has_logout_window:
             # Login-only event: Present if has login
             status = 'Present' if login_record else 'Absent'
+            source = 'System' if login_record else 'Not recorded'
         elif has_logout_window and not has_login_window:
             # Logout-only event: Present if has logout
             status = 'Present' if logout_record else 'Absent'
+            source = 'System' if logout_record else 'Not recorded'
         else:
             # Two-window event: need both or determine based on records
             if logout_record and not login_record:
@@ -236,6 +336,7 @@ def build_attendance_rows(event, students, course=None, year_level=None):
                 status = 'Absent'
             else:
                 status = 'Present'
+            source = 'System' if login_record or logout_record else 'Not recorded'
 
         login_time_text = format_attendance_time(login_record['timestamp']) if login_record else None
         logout_time_text = format_attendance_time(logout_record['timestamp']) if logout_record else None
@@ -247,6 +348,7 @@ def build_attendance_rows(event, students, course=None, year_level=None):
             'course': student.get('course'),
             'year_level': student.get('year_level'),
             'status': status,
+            'source': source,
             'login_time': login_time_text,
             'logout_time': logout_time_text,
             'event_name': event['name'],
@@ -259,9 +361,6 @@ def build_attendance_rows(event, students, course=None, year_level=None):
 @events_bp.route('/attendance', methods=['GET'])
 @require_admin
 def attendance_page():
-    course = request.args.get('course')
-    year_level = request.args.get('year_level')
-    event_id = request.args.get('event_id')
     academic_year = request.args.get('academic_year')
 
     students = student_model.get_all_students()
@@ -274,41 +373,65 @@ def attendance_page():
     academic_years = sorted({format_academic_year(ev['date']) for ev in events if format_academic_year(ev['date'])}, reverse=True)
     filtered_events = [ev for ev in events if not academic_year or format_academic_year(ev['date']) == academic_year]
 
-    selected_event = None
-    if event_id:
-        try:
-            selected_event = event_model.get_event(int(event_id))
-        except Exception:
-            selected_event = None
-
-    if selected_event and academic_year and format_academic_year(selected_event['date']) != academic_year:
-        selected_event = None
-
-    if selected_event:
-        event_groups = [{
-            'event': selected_event,
-            'rows': build_attendance_rows(selected_event, students, course, year_level)
-        }]
-    else:
-        event_groups = []
-        for ev in filtered_events:
-            event_groups.append({
-                'event': ev,
-                'rows': build_attendance_rows(ev, students, course, year_level)
-            })
-
     return render_template(
         'admin/attendance.html',
         courses=courses,
         year_levels=year_levels,
         events=filtered_events,
-        event_groups=event_groups,
-        selected_event_id=int(event_id) if event_id and event_id.isdigit() else None,
         academic_years=academic_years,
         selected_academic_year=academic_year,
-        selected_course=course,
-        selected_year_level=year_level,
     )
+
+
+@events_bp.route('/attendance/event/<int:event_id>', methods=['GET'])
+@require_admin
+def attendance_event_data(event_id):
+    event = event_model.get_event(event_id)
+    if not event:
+        return jsonify({'success': False, 'message': 'Event not found'}), 404
+
+    students = student_model.get_all_students()
+    rows = build_attendance_rows(
+        event,
+        students,
+        request.args.get('course') or None,
+        request.args.get('year_level') or None,
+    )
+    return jsonify({
+        'success': True,
+        'event': {'id': event['id'], 'name': event['name'], 'date': str(event['date'])},
+        'rows': rows,
+    })
+
+
+@events_bp.route('/attendance/event/<int:event_id>/paper', methods=['POST'])
+@require_admin
+def update_paper_attendance(event_id):
+    event = event_model.get_event(event_id)
+    if not event:
+        return jsonify({'success': False, 'message': 'Event not found'}), 404
+
+    data = request.get_json(silent=True) or request.form
+    try:
+        student_id = int(data.get('student_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Invalid student'}), 400
+
+    student = student_model.get_student(student_id)
+    if not student:
+        return jsonify({'success': False, 'message': 'Student not found'}), 404
+
+    status = (data.get('status') or '').lower()
+    try:
+        if status == 'clear':
+            event_model.clear_paper_attendance(event_id, student_id)
+        else:
+            event_model.save_paper_attendance(event_id, student_id, status)
+        event_model.sync_fines_for_event(event)
+    except ValueError as error:
+        return jsonify({'success': False, 'message': str(error)}), 400
+
+    return jsonify({'success': True, 'status': status})
 
 
 def sort_attendance_rows(rows, sort_keys):
@@ -363,7 +486,7 @@ def attendance_report():
     if status_option == 'present':
         rows = [r for r in rows if r['status'] == 'Present']
     elif status_option == 'absent':
-        rows = [r for r in rows if r['status'] != 'Present']
+        rows = [r for r in rows if r['status'] in ('Absent', 'Late')]
 
     rows = sort_attendance_rows(rows, sort_by)
 
@@ -543,10 +666,6 @@ def record_rfid():
 
     timestamp = now
     attendance_model.record_attendance(event_id, student['id'], status, timestamp)
-
-    # Apply a fine record when event attendance is recorded and later synced
-    if status in ['login', 'logout']:
-        event_model.sync_fines_for_event(event)
 
     verb = 'in' if status == 'login' else 'out'
     return jsonify({

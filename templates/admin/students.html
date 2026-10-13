@@ -57,7 +57,16 @@ Students
                 <tr style="border-bottom: 1px solid var(--line-soft);">
                     <td style="border: none;">
                         {% if student.student_id %}
-                            <span class="badge bg-success rounded-pill px-3">Mapped</span>
+                          <button type="button"
+                            class="btn btn-sm btn-outline-success rounded-pill remap-rfid-btn"
+                            data-bs-toggle="modal"
+                            data-bs-target="#mapRfidModal"
+                            data-student-id="{{ student.id }}"
+                            data-student-name="{{ student.firstname|upper }} {{ student.lastname|upper }}"
+                            data-current-rfid="{{ student.student_id }}"
+                          >
+                            <i class="bi bi-arrow-repeat"></i> Remap
+                          </button>
                         {% else %}
                             <button type="button"
                                 class="btn btn-sm btn-outline-dark rounded-pill"
@@ -209,11 +218,11 @@ Students
     <div class="modal-content">
       <form method="post" id="mapRfidForm">
         <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
-          <h5 class="modal-title fw-bold">Map RFID</h5>
+          <h5 class="modal-title fw-bold" id="mapRfidModalTitle">Map RFID</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <p>Assign RFID to <strong id="mapRfidStudentName"></strong>.</p>
+          <p id="mapRfidDescription">Assign RFID to <strong id="mapRfidStudentName"></strong>.</p>
           <div class="mb-3">
             <label class="form-label fw-600">RFID Value</label>
             <input type="text" name="student_id" id="mapRfidValue" class="form-control rounded-lg" required>
@@ -221,7 +230,7 @@ Students
         </div>
         <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
           <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-dark rounded-pill">Save RFID</button>
+          <button type="submit" class="btn btn-dark rounded-pill" id="saveRfidButton">Save RFID</button>
         </div>
       </form>
     </div>
@@ -305,8 +314,13 @@ Students
         const button = event.relatedTarget;
         const studentId = button.getAttribute('data-student-id');
         const studentName = button.getAttribute('data-student-name');
+        const currentRfid = button.getAttribute('data-current-rfid') || '';
+        const isRemap = !!currentRfid;
         document.getElementById('mapRfidStudentName').textContent = studentName;
-        document.getElementById('mapRfidValue').value = '';
+        document.getElementById('mapRfidModalTitle').textContent = isRemap ? 'Remap RFID' : 'Map RFID';
+        document.getElementById('mapRfidDescription').firstChild.textContent = isRemap ? 'Replace RFID for ' : 'Assign RFID to ';
+        document.getElementById('saveRfidButton').textContent = isRemap ? 'Save remapping' : 'Save RFID';
+        document.getElementById('mapRfidValue').value = currentRfid;
         document.getElementById('mapRfidForm').action = '/map-rfid/' + studentId;
     });
 

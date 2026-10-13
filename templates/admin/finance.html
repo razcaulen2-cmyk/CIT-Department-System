@@ -1,27 +1,88 @@
 {% extends "layout/admin_base.html" %}
 
+{% block page_title %}
+Funds & Fines
+{% endblock %}
+
 {% block content %}
 
-<div class="page-header">
+<div class="panel-intro finance-page-header mb-4">
     <div>
-        <div class="eyebrow">MANAGEMENT</div>
-        <h1>Funds & Fines Overview</h1>
-        <p>View and manage student fund and fine balances across all courses and academic years.</p>
+        <p class="eyebrow">FINANCE</p>
+        <h3 class="mb-1">Funds & Fines Overview</h3>
+        <p class="text-muted mb-0">View and manage student fund and fine balances across all courses and academic years.</p>
     </div>
     <div class="page-actions">
+        <button type="button" class="btn btn-outline-warning rounded-pill px-4"
+                data-bs-toggle="modal" data-bs-target="#generateBalanceReportModal">
+            <i class="bi bi-file-earmark-bar-graph"></i> Generate Report
+        </button>
         <button class="btn btn-dark rounded-pill px-4" onclick="openQrModal()">
             <i class="bi bi-qr-code"></i> Tap Student ID
         </button>
     </div>
 </div>
 
+<div class="modal fade" id="generateBalanceReportModal" tabindex="-1"
+     aria-labelledby="generateBalanceReportTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <p class="eyebrow mb-1">FINANCE</p>
+                    <h5 class="modal-title" id="generateBalanceReportTitle">Student Balance Report</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body balance-report-modal-body">
+                <form id="balanceReportForm" method="get" action="{{ url_for('admin.balance_report') }}">
+                    <div class="balance-report-controls">
+                        <div>
+                            <label for="balanceReportType" class="form-label">Balance report</label>
+                            <select class="form-select" id="balanceReportType" name="balance_type" required>
+                                <option value="funds">Funds Balance</option>
+                                <option value="fines">Fines Balance</option>
+                                <option value="overall">Overall Balance</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="balanceReportCourse" class="form-label">Course</label>
+                            <select class="form-select" id="balanceReportCourse" name="course" required>
+                                <option value="all">All Courses</option>
+                                <option value="BLIS">BLIS</option>
+                                <option value="BSCS">BSCS</option>
+                                <option value="BSIS">BSIS</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-dark rounded-pill px-4" id="generateBalanceReportButton">
+                            <i class="bi bi-file-earmark-bar-graph"></i> Generate Report
+                        </button>
+                    </div>
+                </form>
+                <div id="balanceReportError" class="alert alert-danger mt-3 mb-0 d-none" role="alert"></div>
+                <div id="balanceReportLoading" class="text-muted text-center py-5 d-none" role="status">
+                    <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                    Generating report...
+                </div>
+                <div id="balanceReportPreview" class="balance-report-preview mt-4" aria-live="polite"></div>
+            </div>
+            <div class="modal-footer balance-report-modal-footer">
+                <button type="button" class="btn btn-outline-warning rounded-pill px-4" id="printBalanceReportButton" disabled>
+                    <i class="bi bi-printer"></i> Print / Save PDF
+                </button>
+                <button type="button" class="btn btn-dark rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Filters Section -->
 <div class="filter-section">
     <div class="filter-controls">
-        <form method="GET" class="filter-form" onchange="this.submit()">
+        <form method="GET" class="filter-form">
             <div class="filter-group">
                 <label for="course-filter">Filter by Course</label>
-                <select id="course-filter" name="course" class="form-select">
+                <select id="course-filter" name="course" class="form-select" onchange="this.form.submit()">
                     <option value="">All Courses</option>
                     {% for c in courses %}
                     <option value="{{ c }}" {% if c == selected_course %}selected{% endif %}>{{ c }}</option>
@@ -31,12 +92,16 @@
 
             <div class="filter-group">
                 <label for="year-filter">Filter by Year Level</label>
-                <select id="year-filter" name="year_level" class="form-select">
+                <select id="year-filter" name="year_level" class="form-select" onchange="this.form.submit()">
                     <option value="">All Years</option>
                     {% for year in year_levels %}
                     <option value="{{ year }}" {% if year|string == selected_year_level|string %}selected{% endif %}>Year {{ year }}</option>
                     {% endfor %}
                 </select>
+            </div>
+            <div class="filter-group finance-name-search">
+                <label for="student-name-search">Search by Name</label>
+                <input type="search" id="student-name-search" class="form-control" placeholder="Search student name">
             </div>
         </form>
     </div>
@@ -44,7 +109,17 @@
 
 <!-- Students Data Table -->
 <div class="table-container">
-    <table class="data-table">
+    <table class="data-table finance-table">
+        <colgroup>
+            <col class="finance-col-id">
+            <col class="finance-col-name">
+            <col class="finance-col-course">
+            <col class="finance-col-year">
+            <col class="finance-col-funds">
+            <col class="finance-col-fines">
+            <col class="finance-col-total">
+            <col class="finance-col-attendance">
+        </colgroup>
         <thead>
             <tr>
                 <th>Student ID</th>
@@ -54,29 +129,67 @@
                 <th>Total Funds</th>
                 <th>Total Fines</th>
                 <th>Overall Balance</th>
+                <th>Attendance</th>
             </tr>
         </thead>
         <tbody>
             {% if students %}
                 {% for student in students %}
-                <tr onclick="selectStudent('{{ student.student_id }}')">
+                <tr class="finance-student-row" data-student-name="{{ student.firstname }} {{ student.lastname }}" onclick="selectStudent('{{ student.student_id }}')">
                     <td class="student-id">{{ student.student_id }}</td>
-                    <td>{{ student.firstname|upper }} {{ student.lastname|upper }}</td>
+                    <td class="finance-student-name" title="{{ student.firstname|upper }} {{ student.lastname|upper }}">{{ student.firstname|upper }} {{ student.lastname|upper }}</td>
                     <td>{{ student.course|upper }}</td>
                     <td class="text-center">Year {{ student.year_level }}</td>
                     <td class="amount">PHP {{ "%.2f"|format(student.total_funds) }}</td>
                     <td class="amount">PHP {{ "%.2f"|format(student.total_fines) }}</td>
                     <td class="amount total">PHP {{ "%.2f"|format(student.total_funds + student.total_fines) }}</td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-warning list-attendance-btn" data-student-id="{{ student.id or student.student_id }}" data-payment-student-id="{{ student.student_id or student.id }}" data-student-name="{{ student.firstname }} {{ student.lastname }}">
+                            <i class="bi bi-calendar2-check"></i> List of Attendance
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
+                <tr id="finance-no-search-results" style="display: none;">
+                    <td colspan="8" class="text-center text-muted">No students match your search.</td>
+                </tr>
             {% else %}
             <tr>
-                <td colspan="7" class="text-center text-muted">No students found</td>
+                <td colspan="8" class="text-center text-muted">No students found</td>
             </tr>
             {% endif %}
         </tbody>
     </table>
 </div>
+
+<!-- Student Attendance Modal -->
+<div class="modal fade" id="studentAttendanceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title">List of Attendance</h5>
+                    <p class="text-muted small mb-0" id="attendanceStudentName"></p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="studentAttendanceFeedback"></div>
+                <div class="attendance-history-list" id="studentAttendanceList">
+                    <div class="text-muted text-center py-4">Loading attendance...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-dark me-auto" id="proceedAttendanceTransaction">
+                    Proceed Transaction
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% include "admin/_payment_modal.html" %}
 
 <!-- QR Tap Modal -->
 <div class="modal fade" id="qrModal" tabindex="-1">
@@ -88,7 +201,16 @@
             </div>
             <div class="modal-body">
                 <p class="text-muted">Tap the student's ID card or scan their QR code:</p>
-                <input type="text" id="studentIdInput" class="form-control form-control-lg" placeholder="Student ID" autofocus>
+                <label for="studentIdInput" class="visually-hidden">Student ID</label>
+                <div class="student-id-scan-field">
+                    <i class="bi bi-upc-scan" aria-hidden="true"></i>
+                    <input type="text" id="studentIdInput" class="form-control form-control-lg" placeholder="Ready to scan" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
+                    <span class="student-id-scan-indicator" aria-hidden="true"></span>
+                </div>
+                <div class="student-id-scan-hint">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    <span>The scanner will enter the ID automatically. Press Enter if needed.</span>
+                </div>
                 <div id="studentInfo" class="mt-3" style="display: none;">
                     <div class="card" style="border-color: var(--line-soft);">
                         <div class="card-body">
@@ -158,6 +280,94 @@
     border-collapse: collapse;
 }
 
+.finance-name-search {
+    min-width: 240px;
+}
+
+.finance-name-search .form-control {
+    min-width: 220px;
+}
+
+.table-container {
+    width: 100%;
+}
+
+.finance-table {
+    width: 100%;
+    min-width: 1200px;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.finance-col-id { width: 12%; }
+.finance-col-name { width: 24%; }
+.finance-col-course { width: 8%; }
+.finance-col-year { width: 9%; }
+.finance-col-funds,
+.finance-col-fines { width: 10%; }
+.finance-col-total { width: 13%; }
+.finance-col-attendance { width: 14%; }
+
+.finance-table th,
+.finance-table td {
+    vertical-align: middle;
+    overflow: hidden;
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.finance-table th {
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.finance-table th:nth-child(3),
+.finance-table td:nth-child(3),
+.finance-table th:nth-child(4),
+.finance-table td:nth-child(4),
+.finance-table th:nth-child(8),
+.finance-table td:nth-child(8) {
+    text-align: center;
+}
+
+.finance-table th:nth-child(n+5):nth-child(-n+7) {
+    text-align: right;
+}
+
+.finance-table td {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.finance-table .finance-student-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.finance-table .student-id,
+.finance-table .amount {
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.finance-table .amount {
+    white-space: nowrap;
+}
+
+.finance-table .list-attendance-btn {
+    display: inline-flex;
+    width: 100%;
+    min-height: 36px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 6px 8px;
+    line-height: 1.2;
+    white-space: normal;
+}
+
 .data-table thead {
     background: rgba(212, 175, 55, 0.08);
     border-bottom: 2px solid var(--line-soft);
@@ -215,6 +425,111 @@
     color: var(--muted);
 }
 
+.balance-report-modal-body {
+    min-height: 240px;
+}
+
+.balance-report-controls {
+    display: flex;
+    align-items: end;
+    gap: 14px;
+    padding: 18px;
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    background: rgba(212, 175, 55, 0.04);
+}
+
+.balance-report-controls > div {
+    flex: 1;
+}
+
+.balance-report-preview:empty {
+    display: none;
+}
+
+.balance-report-modal-footer {
+    justify-content: space-between;
+}
+
+.balance-report-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.balance-report-summary-card {
+    padding: 14px 16px;
+    border: 1px solid rgba(212, 175, 55, 0.2);
+    border-radius: 12px;
+    background: rgba(212, 175, 55, 0.05);
+}
+
+.balance-report-summary-label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.balance-report-summary-value {
+    color: var(--text);
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.balance-report-table-wrap {
+    overflow-x: auto;
+}
+
+.balance-report-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 3px;
+    font-size: 0.82rem;
+}
+
+.balance-report-table th {
+    padding: 9px 11px;
+    background: rgba(212, 175, 55, 0.08);
+    color: var(--text);
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.balance-report-table td {
+    padding: 8px 11px;
+    background: rgba(255, 255, 255, 0.025);
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--text);
+}
+
+.balance-report-table .balance-report-amount {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.balance-report-table .balance-report-empty {
+    padding: 28px 12px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.balance-report-course-row td {
+    padding: 9px 11px;
+    background: rgba(212, 175, 55, 0.1);
+    color: var(--line);
+    font-weight: 700;
+}
+
 .modal-content {
     border: 1px solid var(--line-soft);
     border-radius: 16px;
@@ -261,30 +576,198 @@
 .text-right {
     text-align: right;
 }
+
+.list-attendance-btn {
+    white-space: nowrap;
+}
+
+.attendance-history-list {
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.attendance-history-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 120px 100px;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.attendance-history-row:last-child {
+    border-bottom: 0;
+}
+
+.attendance-status {
+    justify-self: end;
+    min-width: 86px;
+    text-align: center;
+}
+
+.attendance-status-present {
+    background: rgba(46, 125, 50, 0.2);
+    color: #a5d6a7;
+}
+
+.attendance-status-late {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fcd34d;
+}
+
+.attendance-status-absent {
+    background: rgba(183, 28, 28, 0.2);
+    color: #ff8a80;
+}
+
+.attendance-status-exempted {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+}
+
+@media (max-width: 640px) {
+    .attendance-history-row {
+        grid-template-columns: 1fr auto;
+        gap: 6px 12px;
+    }
+
+    .attendance-history-row .attendance-date {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .attendance-history-row .attendance-status {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .balance-report-controls {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 14px;
+    }
+
+    .balance-report-controls .btn {
+        width: 100%;
+    }
+}
+
+@media print {
+    @page {
+        size: landscape;
+        margin: 12mm;
+    }
+
+    body * {
+        visibility: hidden !important;
+    }
+
+    #generateBalanceReportModal,
+    #generateBalanceReportModal * {
+        visibility: visible !important;
+    }
+
+    #generateBalanceReportModal {
+        position: absolute !important;
+        inset: 0 auto auto 0 !important;
+        display: block !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+
+    #generateBalanceReportModal .modal-dialog,
+    #generateBalanceReportModal .modal-content,
+    #generateBalanceReportModal .modal-body {
+        width: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: #fff !important;
+        color: #111 !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+    }
+
+    #generateBalanceReportModal .modal-header,
+    #balanceReportForm,
+    #balanceReportError,
+    #balanceReportLoading,
+    .balance-report-modal-footer,
+    .modal-backdrop {
+        display: none !important;
+    }
+
+    .balance-report-preview,
+    .balance-report-preview * {
+        color: #111 !important;
+    }
+
+    .balance-report-summary-card,
+    .balance-report-table th,
+    .balance-report-table td,
+    .balance-report-course-row td {
+        background: #fff !important;
+        border-color: #ccc !important;
+    }
+
+    .balance-report-table {
+        font-size: 9pt;
+    }
+
+    .balance-report-table th,
+    .balance-report-table td {
+        padding: 5pt 7pt;
+    }
+
+    .balance-report-table thead {
+        display: table-header-group;
+    }
+
+    .balance-report-table tr {
+        break-inside: avoid;
+    }
+}
 </style>
 
 <script>
 function openQrModal() {
-    const modal = new bootstrap.Modal(document.getElementById('qrModal'));
-    modal.show();
+    const modalElement = document.getElementById('qrModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
     const input = document.getElementById('studentIdInput');
     const studentInfo = document.getElementById('studentInfo');
     if (input) {
         input.value = '';
-        input.focus();
     }
     if (studentInfo) {
         studentInfo.style.display = 'none';
     }
+    modal.show();
 }
 
 const studentIdInput = document.getElementById('studentIdInput');
+const qrModalElement = document.getElementById('qrModal');
 let scanTimer = null;
 const SCAN_TIMEOUT_MS = 250;
 
+qrModalElement?.addEventListener('shown.bs.modal', function() {
+    window.requestAnimationFrame(() => studentIdInput?.focus());
+});
+
 if (studentIdInput) {
-    studentIdInput.addEventListener('keypress', function(e) {
+    studentIdInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
+            e.preventDefault();
+            if (scanTimer) {
+                clearTimeout(scanTimer);
+                scanTimer = null;
+            }
             const studentId = this.value.trim();
             if (studentId) {
                 fetchStudentBalance(studentId);
@@ -325,6 +808,9 @@ function fetchStudentBalance(studentId) {
         })
         .catch(error => {
             alert('Error: ' + error.message);
+            if (qrModalElement?.classList.contains('show')) {
+                studentIdInput?.focus();
+            }
         });
 }
 
@@ -341,6 +827,70 @@ function selectStudent(studentId) {
     // Highlight the row and show details
     console.log('Selected student:', studentId);
 }
+
+const studentNameSearch = document.getElementById('student-name-search');
+const financeStudentRows = [...document.querySelectorAll('.finance-student-row')];
+const financeNoSearchResults = document.getElementById('finance-no-search-results');
+
+studentNameSearch?.addEventListener('input', function () {
+    const query = this.value.trim().toLowerCase();
+    let visibleCount = 0;
+
+    financeStudentRows.forEach((row) => {
+        const matches = row.dataset.studentName.toLowerCase().includes(query);
+        row.style.display = matches ? '' : 'none';
+        if (matches) visibleCount += 1;
+    });
+
+    if (financeNoSearchResults) {
+        financeNoSearchResults.style.display = visibleCount ? 'none' : '';
+    }
+});
+
+document.querySelectorAll('.list-attendance-btn').forEach((button) => {
+    button.addEventListener('click', function(event) {
+        event.stopPropagation();
+        const modalElement = document.getElementById('studentAttendanceModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
+        const listElement = document.getElementById('studentAttendanceList');
+        const feedbackElement = document.getElementById('studentAttendanceFeedback');
+        modalElement.dataset.paymentStudentId = this.dataset.paymentStudentId;
+        document.getElementById('attendanceStudentName').textContent = this.dataset.studentName;
+        feedbackElement.innerHTML = '';
+        listElement.innerHTML = '<div class="text-muted text-center py-4">Loading attendance...</div>';
+        modal.show();
+
+        fetch(`/api/students/${encodeURIComponent(this.dataset.studentId)}/attendance`)
+            .then(async (response) => {
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) {
+                    throw new Error(response.redirected ? 'Your admin session has expired. Please log in again.' : 'The attendance service returned an unexpected response.');
+                }
+                return {ok: response.ok, data: await response.json()};
+            })
+            .then(({ok, data}) => {
+                if (!ok || !data.success) throw new Error(data.message || 'Unable to load attendance.');
+                if (!data.events.length) {
+                    listElement.innerHTML = '<div class="text-muted text-center py-4">No events have been created.</div>';
+                    return;
+                }
+                listElement.innerHTML = data.events.map((event) => {
+                    const statusClass = event.status.toLowerCase();
+                    return `
+                        <div class="attendance-history-row">
+                            <span>${event.event_name}</span>
+                            <span class="attendance-date text-muted small">${event.event_date}</span>
+                            <span class="badge attendance-status attendance-status-${statusClass}">${event.status}</span>
+                        </div>
+                    `;
+                }).join('');
+            })
+            .catch((error) => {
+                feedbackElement.innerHTML = `<div class="alert alert-danger">${error.message}</div>`;
+                listElement.innerHTML = '';
+            });
+    });
+});
 </script>
 
 {% endblock %}

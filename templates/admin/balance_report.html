@@ -1,0 +1,85 @@
+<section class="balance-report-content" aria-label="Student balance report results">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <p class="eyebrow mb-1">REPORT SUMMARY</p>
+            <h3 class="h5 mb-1">{{ report_title }}</h3>
+            <p class="text-muted small mb-0">
+                {{ "All courses" if course == "all" else course }} &middot; Positive balances only
+            </p>
+        </div>
+        <p class="text-muted small mb-0">Generated {{ generated_at.strftime('%b %d, %Y') }}</p>
+    </div>
+
+    <div class="balance-report-summary" aria-label="Balance totals">
+        <div class="balance-report-summary-card">
+            <span class="balance-report-summary-label">Students with balance</span>
+            <span class="balance-report-summary-value">{{ students|length }}</span>
+        </div>
+        {% if balance_type == "funds" %}
+        <div class="balance-report-summary-card">
+            <span class="balance-report-summary-label">Total funds balance</span>
+            <span class="balance-report-summary-value">PHP {{ "%.2f"|format(report_total) }}</span>
+        </div>
+        {% elif balance_type == "fines" %}
+        <div class="balance-report-summary-card">
+            <span class="balance-report-summary-label">Total fines balance</span>
+            <span class="balance-report-summary-value">PHP {{ "%.2f"|format(report_total) }}</span>
+        </div>
+        {% else %}
+        <div class="balance-report-summary-card">
+            <span class="balance-report-summary-label">Total overall balance</span>
+            <span class="balance-report-summary-value">PHP {{ "%.2f"|format(report_total) }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="balance-report-table-wrap">
+        <table class="balance-report-table">
+            <thead>
+                <tr>
+                    <th>Student ID</th>
+                    <th>Last Name</th>
+                    <th>First Name</th>
+                    <th>Year</th>
+                    {% if balance_type == "overall" %}
+                    <th class="text-end">Funds</th>
+                    <th class="text-end">Fines</th>
+                    <th class="text-end">Overall Balance</th>
+                    {% else %}
+                    <th class="text-end">{{ "Funds Balance" if balance_type == "funds" else "Fines Balance" }}</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for course_group in students|groupby('course') %}
+                <tr class="balance-report-course-row">
+                    <td colspan="{{ 7 if balance_type == 'overall' else 5 }}">{{ course_group.grouper|upper }}</td>
+                </tr>
+                {% for student in course_group.list %}
+                <tr>
+                    <td>{{ student.report_student_id }}</td>
+                    <td>{{ student.lastname|upper }}</td>
+                    <td>{{ student.firstname|upper }}</td>
+                    <td>Year {{ student.year_level }}</td>
+                    {% if balance_type == "overall" %}
+                    <td class="balance-report-amount">PHP {{ "%.2f"|format(student.total_funds) }}</td>
+                    <td class="balance-report-amount">PHP {{ "%.2f"|format(student.total_fines) }}</td>
+                    <td class="balance-report-amount">PHP {{ "%.2f"|format(student.overall_balance) }}</td>
+                    {% elif balance_type == "funds" %}
+                    <td class="balance-report-amount">PHP {{ "%.2f"|format(student.total_funds) }}</td>
+                    {% else %}
+                    <td class="balance-report-amount">PHP {{ "%.2f"|format(student.total_fines) }}</td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td class="balance-report-empty" colspan="{{ 7 if balance_type == 'overall' else 5 }}">
+                        No students with a positive balance match these filters.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>

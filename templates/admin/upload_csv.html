@@ -1,37 +1,127 @@
 {% extends "layout/admin_base.html" %}
 
+{% block title %}
+Upload CSV
+{% endblock %}
+
 {% block page_title %}
 Upload CSV
 {% endblock %}
 
 {% block content %}
 
-<div class="page-header">
-    <div>
-        <div class="eyebrow">UPLOAD</div>
-        <h1>CSV Import</h1>
-        <p>Upload student data using a CSV file. The file will be stored in the uploads folder.</p>
+<div class="container-fluid csv-import-page">
+    <div class="page-header">
+        <div>
+            <div class="eyebrow">DATA MANAGEMENT</div>
+            <h1>Import student balances</h1>
+            <p>Upload a CSV to add Funds or Fines balances to student accounts.</p>
+        </div>
     </div>
-</div>
 
-<div class="card card-panel p-4" style="max-width: 640px;">
     {% if message %}
-    <div class="alert alert-{{ message_type }}" role="alert">
-        {{ message }}
+    <div class="csv-import-feedback csv-import-feedback-{{ message_type }}" role="alert">
+        <i class="bi {% if message_type == 'success' %}bi-check-circle-fill{% else %}bi-exclamation-triangle-fill{% endif %}" aria-hidden="true"></i>
+        <span>{{ message }}</span>
     </div>
     {% endif %}
 
-    <form method="POST" enctype="multipart/form-data">
-        <div class="mb-4">
-            <label for="csvFile" class="form-label">Select CSV file</label>
-            <input class="form-control" type="file" name="csv_file" id="csvFile" accept=".csv">
-            <div class="form-text">Only files with .csv extension are accepted.</div>
+    {% if row_errors %}
+    <div class="csv-import-feedback csv-import-feedback-warning" role="alert">
+        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+        <div>
+            <strong>Some rows were skipped</strong>
+            <ul class="csv-import-errors">
+                {% for error in row_errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+            {% if omitted_error_count %}
+            <p class="mb-0">And {{ omitted_error_count }} more row error(s).</p>
+            {% endif %}
         </div>
+    </div>
+    {% endif %}
 
-        <button type="submit" class="btn btn-dark rounded-pill px-4">
-            <i class="bi bi-upload"></i> Upload CSV
-        </button>
-    </form>
+    <div class="csv-import-layout">
+        <section class="card card-panel csv-import-card">
+            <div class="csv-import-card-heading">
+                <span class="csv-import-icon"><i class="bi bi-cloud-arrow-up" aria-hidden="true"></i></span>
+                <div>
+                    <h2>Upload a file</h2>
+                    <p>Choose what you’re importing, then select your CSV.</p>
+                </div>
+            </div>
+
+            <form method="POST" enctype="multipart/form-data" class="csv-import-form">
+                <div class="csv-import-field">
+                    <label for="importType" class="form-label">Balance type</label>
+                    <select class="form-select" id="importType" name="import_type" required>
+                        <option value="" disabled {% if not request.form.get('import_type') %}selected{% endif %}>Choose Funds or Fines</option>
+                        <option value="Funds" {% if request.form.get('import_type') == 'Funds' %}selected{% endif %}>Funds</option>
+                        <option value="Fines" {% if request.form.get('import_type') == 'Fines' %}selected{% endif %}>Fines</option>
+                    </select>
+                    <div class="csv-import-help">Choose one balance type for each file.</div>
+                </div>
+
+                <div class="csv-import-field">
+                    <label for="csvFile" class="form-label">CSV file</label>
+                    <input class="form-control csv-import-file" type="file" name="csv_file" id="csvFile" accept=".csv,text/csv" required>
+                    <div class="csv-import-help">Export or save your spreadsheet as a CSV file.</div>
+                </div>
+
+                <div class="csv-import-note">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    <span>Imported amounts are <strong>added</strong> to existing balances.</span>
+                </div>
+
+                <button type="submit" class="btn btn-dark rounded-pill csv-import-submit">
+                    <i class="bi bi-upload" aria-hidden="true"></i>
+                    Import balances
+                </button>
+            </form>
+        </section>
+
+        <aside class="card card-panel csv-format-card">
+            <div class="csv-format-heading">
+                <span class="eyebrow">FILE FORMAT</span>
+                <h2>Prepare your CSV</h2>
+                <p>Include these four columns in your first row, in any order.</p>
+            </div>
+
+            <div class="csv-column-list" aria-label="Required CSV columns">
+                <span><i class="bi bi-check2" aria-hidden="true"></i> Student name</span>
+                <span><i class="bi bi-check2" aria-hidden="true"></i> Year</span>
+                <span><i class="bi bi-check2" aria-hidden="true"></i> Course</span>
+                <span><i class="bi bi-check2" aria-hidden="true"></i> Amount</span>
+            </div>
+
+            <div class="csv-example">
+                <div class="csv-example-title">
+                    <span>Example</span>
+                    <span class="csv-file-badge"><i class="bi bi-filetype-csv" aria-hidden="true"></i> CSV</span>
+                </div>
+                <pre>STUDENT NAME,YEAR,COURSE,AMOUNT
+JOSHUA ZAMORA ABUNALES,2,BSIS,500.00
+CRISHA MAE ABOGADA ABIADO,1,BSCS,250.00</pre>
+            </div>
+
+            <div class="csv-format-rules">
+                <div>
+                    <i class="bi bi-person-check" aria-hidden="true"></i>
+                    <p>Student name, year, and course must match exactly one student.</p>
+                </div>
+                <div>
+                    <i class="bi bi-cash-coin" aria-hidden="true"></i>
+                    <p>Amounts must be positive numbers, such as <strong>250.00</strong>.</p>
+                </div>
+                <div>
+                    <i class="bi bi-skip-forward" aria-hidden="true"></i>
+                    <p>Unmatched or ambiguous rows are skipped and reported after import.</p>
+                </div>
+            </div>
+        </aside>
+    </div>
 </div>
 
 {% endblock %}

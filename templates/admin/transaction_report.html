@@ -1,0 +1,72 @@
+<section class="transaction-report-content" aria-label="Transaction report results">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <p class="eyebrow mb-1">REPORT SUMMARY</p>
+            <h3 class="h5 mb-1">Transaction Report</h3>
+            <p class="report-period mb-0">{{ period_label }}</p>
+        </div>
+        <p class="text-muted small mb-0">
+            Generated {{ generated_at.strftime('%b %d, %Y %I:%M %p') }}
+        </p>
+    </div>
+
+    <div class="transaction-report-summary" aria-label="Transaction totals">
+        <div class="transaction-report-summary-card">
+            <span class="transaction-report-summary-label">Transactions</span>
+            <span class="transaction-report-summary-value">{{ transaction_count }}</span>
+        </div>
+        <div class="transaction-report-summary-card">
+            <span class="transaction-report-summary-label">Total collected</span>
+            <span class="transaction-report-summary-value">PHP {{ "%.2f"|format(total_amount) }}</span>
+        </div>
+        <div class="transaction-report-summary-card">
+            <span class="transaction-report-summary-label">Funds collected</span>
+            <span class="transaction-report-summary-value">PHP {{ "%.2f"|format(funds_total) }}</span>
+        </div>
+        <div class="transaction-report-summary-card">
+            <span class="transaction-report-summary-label">Fines collected</span>
+            <span class="transaction-report-summary-value">PHP {{ "%.2f"|format(fines_total) }}</span>
+        </div>
+    </div>
+
+    <div class="transaction-report-table-wrap">
+        <table class="transaction-report-table">
+            <colgroup>
+                <col class="report-date-column">
+                <col class="report-student-column">
+                <col class="report-details-column">
+                <col class="report-amount-column">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Student</th>
+                    <th>Payment details</th>
+                    <th class="text-end">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tx in transactions %}
+                <tr>
+                    <td>
+                        <span>{{ tx.transaction_date.strftime('%b %d, %Y · %I:%M %p') if tx.transaction_date else '-' }}</span>
+                        <small class="report-row-meta">{{ tx.academic_year or '-' }} · {{ tx.semester or '-' }}</small>
+                    </td>
+                    <td>{{ tx.student_name or tx.student_id or '-' }}</td>
+                    <td>
+                        <span class="badge {% if tx.transaction_type == 'Funds' %}badge-funds{% else %}badge-fines{% endif %}">
+                            {{ tx.transaction_type }}
+                        </span>
+                        <span class="report-payment-type">{{ tx.payment_type }}</span>
+                    </td>
+                    <td class="report-amount">PHP {{ "%.2f"|format(tx.amount) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td class="transaction-report-empty" colspan="4">No transactions found for this period.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
