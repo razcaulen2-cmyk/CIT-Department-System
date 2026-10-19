@@ -2,20 +2,31 @@ from functools import wraps
 import base64
 import binascii
 import csv
+import hmac
 import io
 import json
 import re
+import secrets
 import unicodedata
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from urllib.parse import quote_plus
 
 import mysql.connector
-from flask import Blueprint, flash, jsonify, redirect, render_template, request, session
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 from werkzeug.security import check_password_hash
 
 from config import get_db_connection
 from models import attendance_model, event_model, semester_model
+from services.database_backup import (
+    MAX_RESTORE_BYTES,
+    DatabaseBackupError,
+    create_database_backup,
+    get_database_backup_path,
+    restore_database as restore_database_backup,
+    stage_restore_upload,
+)
 from services.windows_printer import list_local_printers, print_raw_receipt
 
 admin_bp = Blueprint("admin", __name__)
@@ -1344,6 +1355,9 @@ def upload_csv():
     row_errors = []
     omitted_error_count = 0
 
+    if request.method == "GET":
+        session["database_restore_csrf"] = secrets.token_urlsafe(32)
+
     if request.method == 'POST':
         file = request.files.get('csv_file')
         import_type = request.form.get('import_type', '').strip()
@@ -1561,6 +1575,14 @@ def upload_csv():
                 if conn:
                     conn.close()
 
+    backup_filename = session.get("latest_database_backup")
+    if backup_filename:
+        try:
+            get_database_backup_path(backup_filename)
+        except DatabaseBackupError:
+            session.pop("latest_database_backup", None)
+            backup_filename = None
+
     return render_template(
         'admin/upload_csv.html',
         message=message,
@@ -1568,7 +1590,97 @@ def upload_csv():
         imported_count=imported_count,
         row_errors=row_errors,
         omitted_error_count=omitted_error_count,
+        database_restore_csrf=session.get("database_restore_csrf"),
+        backup_filename=backup_filename,
     )
+
+
+@admin_bp.route("/database/backup", methods=["GET"])
+@require_admin
+def download_database_backup():
+    try:
+        backup_path = create_database_backup()
+    except (DatabaseBackupError, OSError, mysql.connector.Error) as error:
+        current_app.logger.error("Database backup failed: %s", error)
+        flash(f"Database backup failed: {error}", "danger")
+        return redirect("/upload-csv")
+
+    session["latest_database_backup"] = backup_path.name
+    return send_file(
+        backup_path,
+        as_attachment=True,
+        download_name=backup_path.name,
+        mimetype="application/sql",
+    )
+
+
+@admin_bp.route("/database/backups/<filename>", methods=["GET"])
+@require_admin
+def download_saved_database_backup(filename):
+    try:
+        backup_path = get_database_backup_path(filename)
+    except (DatabaseBackupError, OSError) as error:
+        return str(error), 404
+    return send_file(
+        backup_path,
+        as_attachment=True,
+        download_name=backup_path.name,
+        mimetype="application/sql",
+    )
+
+
+@admin_bp.route("/database/restore", methods=["POST"])
+@require_admin
+def restore_database():
+    request.max_content_length = MAX_RESTORE_BYTES + 1024 * 1024
+    if request.content_length and request.content_length > MAX_RESTORE_BYTES + 1024 * 1024:
+        flash("The selected backup exceeds the 1 GB restore limit.", "danger")
+        return redirect("/upload-csv")
+
+    submitted_token = request.form.get("csrf_token", "")
+    expected_token = session.get("database_restore_csrf", "")
+    if not expected_token or not hmac.compare_digest(submitted_token, expected_token):
+        flash("Restore request expired. Reload this page and try again.", "danger")
+        return redirect("/upload-csv")
+    if request.form.get("confirmation", "").strip().upper() != "RESTORE":
+        flash("Type RESTORE exactly to confirm replacing the current database.", "danger")
+        return redirect("/upload-csv")
+
+    uploaded_file = request.files.get("backup_file")
+    if not uploaded_file or not uploaded_file.filename:
+        flash("Choose a MySQL backup file to restore.", "danger")
+        return redirect("/upload-csv")
+    if not uploaded_file.filename.lower().endswith(".sql"):
+        flash("Only .sql MySQL backup files can be restored.", "danger")
+        return redirect("/upload-csv")
+
+    staged_path = None
+    try:
+        staged_path = stage_restore_upload(uploaded_file.stream)
+        safety_backup = restore_database_backup(staged_path)
+        session["latest_database_backup"] = safety_backup.name
+        flash(
+            "Database restored successfully. An automatic pre-restore safety backup is available below.",
+            "success",
+        )
+    except (DatabaseBackupError, OSError, mysql.connector.Error) as error:
+        current_app.logger.error("Database restore failed: %s", error)
+        if isinstance(error, DatabaseBackupError) and error.safety_backup:
+            session["latest_database_backup"] = error.safety_backup.name
+        flash(str(error), "danger")
+    finally:
+        if staged_path and staged_path.exists():
+            try:
+                staged_path.unlink()
+            except OSError as error:
+                current_app.logger.error("Could not remove staged database restore file: %s", error)
+                flash(
+                    "The restore upload could not be removed from the server's temporary backup folder.",
+                    "warning",
+                )
+
+    session["database_restore_csrf"] = secrets.token_urlsafe(32)
+    return redirect("/upload-csv")
 
 
 # API endpoint to process payment transaction

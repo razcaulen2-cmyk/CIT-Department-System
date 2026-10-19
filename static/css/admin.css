@@ -1214,8 +1214,200 @@ button.btn,
     margin-top: 4px;
 }
 
+.csv-database-section {
+    margin-top: 24px;
+    padding: 24px;
+    background: #141414 !important;
+}
+
+.csv-database-section > .csv-import-card-heading {
+    margin-bottom: 20px;
+    padding-bottom: 18px;
+}
+
+.csv-database-section .csv-import-card-heading .eyebrow {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--line);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+}
+
+.csv-database-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.csv-database-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 22px;
+    border: 1px solid rgba(212, 175, 55, 0.14);
+    border-radius: 15px;
+    background: #101010;
+}
+
+.csv-database-card-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    margin-bottom: 18px;
+}
+
+.csv-database-card-icon,
+.csv-database-saved-icon {
+    display: grid;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border: 1px solid rgba(212, 175, 55, 0.2);
+    border-radius: 12px;
+    background: rgba(212, 175, 55, 0.1);
+    color: var(--line);
+    font-size: 1.15rem;
+}
+
+.csv-database-card-heading h3 {
+    margin: 1px 0 5px;
+    color: var(--text);
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.csv-database-card-heading p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.91rem;
+    line-height: 1.5;
+}
+
+.csv-database-action {
+    min-height: 42px;
+    padding: 9px 18px;
+    font-weight: 700;
+}
+
+.csv-database-footnote {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 14px 0 0;
+    color: var(--text-muted);
+    font-size: 0.83rem;
+    line-height: 1.45;
+}
+
+.csv-database-footnote i {
+    margin-top: 2px;
+    color: var(--line);
+}
+
+.csv-database-restore {
+    border-color: rgba(255, 184, 77, 0.3);
+}
+
+.csv-database-restore .csv-database-card-icon {
+    border-color: rgba(255, 184, 77, 0.24);
+    background: rgba(255, 184, 77, 0.1);
+    color: #ffc56e;
+}
+
+.csv-database-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 184, 77, 0.24);
+    border-radius: 11px;
+    background: rgba(255, 184, 77, 0.07);
+    color: var(--text-muted);
+    font-size: 0.87rem;
+    line-height: 1.5;
+}
+
+.csv-database-warning > i {
+    flex: 0 0 auto;
+    margin-top: 2px;
+    color: #ffc56e;
+}
+
+.csv-database-warning p {
+    margin: 0;
+}
+
+.csv-database-warning strong {
+    color: #ffe0ad;
+}
+
+.csv-database-restore-form {
+    display: grid;
+    width: 100%;
+    gap: 15px;
+    margin-top: 18px;
+}
+
+.csv-database-form-field .form-label {
+    margin-bottom: 7px;
+    color: var(--text);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.csv-database-form-field .form-label strong {
+    color: #ffe0ad;
+    letter-spacing: 0.04em;
+}
+
+.csv-database-saved {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 18px;
+    padding: 12px 15px;
+    border: 1px solid rgba(212, 175, 55, 0.22);
+    border-radius: 12px;
+    background: rgba(212, 175, 55, 0.06);
+}
+
+.csv-database-saved-icon {
+    flex-basis: 36px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    background: transparent;
+}
+
+.csv-database-saved-copy {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+    gap: 2px;
+}
+
+.csv-database-saved-copy strong {
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.csv-database-saved-copy span {
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
 @media (max-width: 900px) {
     .csv-import-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .csv-database-grid {
         grid-template-columns: minmax(0, 1fr);
     }
 }
@@ -1232,6 +1424,23 @@ button.btn,
     .csv-import-card,
     .csv-format-card {
         padding: 20px;
+    }
+
+    .csv-database-section {
+        padding: 20px;
+    }
+
+    .csv-database-card {
+        padding: 18px;
+    }
+
+    .csv-database-saved {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .csv-database-saved .btn {
+        margin-left: 48px;
     }
 
     .csv-import-submit {
