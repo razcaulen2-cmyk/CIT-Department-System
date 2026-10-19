@@ -1,0 +1,70 @@
+{% extends "layout/admin_base.html" %}
+
+{% block title %}Semester Students{% endblock %}
+{% block page_title %}Semester Students{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="page-header d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <p class="eyebrow">ENROLLMENT</p>
+            <h3 class="mb-2">{{ semester.academic_year }} · {{ semester.semester }}</h3>
+            <p class="text-muted mb-0">
+                Semester fund: PHP {{ "%.2f"|format(semester.fund_amount or 0) }}.
+                Dropping a student does not remove existing funds or fines.
+            </p>
+        </div>
+        <a href="/academic-terms" class="btn btn-outline-dark rounded-pill">Back to Semesters</a>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Student ID</th>
+                    <th>Course</th>
+                    <th>Year</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for student in students %}
+                <tr>
+                    <td>{{ student.lastname }}, {{ student.firstname }}</td>
+                    <td>{{ student.student_id or student.id }}</td>
+                    <td>{{ student.course }}</td>
+                    <td>{{ student.year_level }}</td>
+                    <td>
+                        {% if student.status == 'enrolled' %}
+                            <span class="badge bg-success">Enrolled</span>
+                        {% elif student.status == 'dropped' %}
+                            <span class="badge bg-secondary">Dropped</span>
+                        {% else %}
+                            <span class="badge bg-light text-dark">Not enrolled</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if not student.status %}
+                        <form method="post" action="/academic-terms/{{ semester.id }}/students/{{ student.id }}/enroll">
+                            <button type="submit" class="btn btn-sm btn-outline-primary rounded-pill">Enroll</button>
+                        </form>
+                        {% elif student.status == 'enrolled' %}
+                        <form method="post" action="/academic-terms/{{ semester.id }}/students/{{ student.id }}/drop"
+                              onsubmit="return confirm('Drop this student from the semester? Their existing funds and fines will remain.');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill">Drop</button>
+                        </form>
+                        {% else %}
+                        <span class="text-muted small">Enrollment retained</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted py-4">No students are registered.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

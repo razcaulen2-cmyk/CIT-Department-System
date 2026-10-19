@@ -10,11 +10,12 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote_plus
 
+import mysql.connector
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash
 
 from config import get_db_connection
-from models import attendance_model, event_model
+from models import attendance_model, event_model, semester_model
 from services.windows_printer import list_local_printers, print_raw_receipt
 
 admin_bp = Blueprint("admin", __name__)
@@ -122,9 +123,23 @@ def students():
     cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT * FROM students ORDER BY id DESC")
     students = cursor.fetchall()
+    cursor.execute(
+        """
+        SELECT id, academic_year, semester, fund_amount
+        FROM school_terms
+        WHERE is_active=TRUE
+        ORDER BY id DESC
+        LIMIT 1
+        """
+    )
+    active_semester = cursor.fetchone()
     conn.close()
 
-    return render_template("admin/students.html", students=students)
+    return render_template(
+        "admin/students.html",
+        students=students,
+        active_semester=active_semester,
+    )
 
 
 @admin_bp.route("/add-student", methods=["GET", "POST"])
@@ -161,12 +176,40 @@ def add_student():
             """,
             (firstname, lastname, course, year_level),
         )
+        student_id = cursor.lastrowid
+        enroll_active = request.form.get("enroll_active_semester") == "1"
+        if enroll_active:
+            cursor.execute(
+                """
+                SELECT id
+                FROM school_terms
+                WHERE is_active=TRUE
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+            active_semester = cursor.fetchone()
+            if active_semester:
+                semester_model.enroll_student(
+                    cursor,
+                    active_semester[0],
+                    student_id,
+                    str(student_id),
+                )
+            else:
+                flash("Student was created, but there is no active semester to enroll them in.", "warning")
         conn.commit()
         conn.close()
 
+        flash(
+            "Student created and enrolled in the active semester."
+            if enroll_active and active_semester
+            else "Student created successfully.",
+            "success",
+        )
         return redirect("/students")
 
-    return render_template("admin/add_student.html")
+    return redirect("/students")
 
 
 @admin_bp.route("/delete-student/<id>", methods=["GET", "POST"])
@@ -356,7 +399,22 @@ def map_rfid(id):
 def academic_terms():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM school_terms ORDER BY academic_year DESC, semester DESC")
+    cursor.execute(
+        """
+        SELECT st.*,
+               (SELECT COUNT(*)
+                FROM semester_enrollments se
+                WHERE se.semester_id=st.id AND se.status='enrolled') AS enrolled_count
+        FROM school_terms st
+        ORDER BY st.academic_year DESC,
+                 CASE st.semester
+                     WHEN '1st Semester' THEN 1
+                     WHEN '2nd Semester' THEN 2
+                     ELSE 3
+                 END,
+                 st.semester
+        """
+    )
     terms = cursor.fetchall()
     conn.close()
 
@@ -367,29 +425,104 @@ def academic_terms():
 @require_admin
 def add_academic_term():
     if request.method == "POST":
-        academic_year = request.form["academic_year"]
-        semester = request.form["semester"]
-        start_date = request.form.get("start_date", None)
-        end_date = request.form.get("end_date", None)
-        is_active = request.form.get("is_active", False)
-        is_active = is_active == "on"
+        academic_year = request.form.get("academic_year", "").strip()
+        if not academic_year or len(academic_year) > 20:
+            flash("Enter a valid academic year (up to 20 characters).", "danger")
+            return redirect("/academic-terms")
+
+        semester_definitions = (
+            ("1st Semester", "first"),
+            ("2nd Semester", "second"),
+            ("Summer Class", "summer"),
+        )
+        semester_values = []
+        try:
+            for semester, prefix in semester_definitions:
+                start_date = request.form.get(f"{prefix}_start_date") or None
+                end_date = request.form.get(f"{prefix}_end_date") or None
+                try:
+                    if start_date:
+                        date.fromisoformat(start_date)
+                    if end_date:
+                        date.fromisoformat(end_date)
+                except ValueError:
+                    raise ValueError(f"{semester}: enter valid start and end dates.") from None
+                if start_date and end_date and start_date > end_date:
+                    raise ValueError(f"{semester}: end date must not be before start date.")
+
+                raw_fund_amount = request.form.get(f"{prefix}_fund_amount")
+                if raw_fund_amount is None:
+                    raise InvalidOperation
+                fund_amount = Decimal(raw_fund_amount)
+                if (
+                    not fund_amount.is_finite()
+                    or fund_amount < 0
+                    or fund_amount > Decimal("99999999.99")
+                ):
+                    raise InvalidOperation
+                fund_amount = fund_amount.quantize(Decimal("0.01"))
+                semester_values.append(
+                    (semester, start_date, end_date, fund_amount)
+                )
+        except ValueError as error:
+            flash(
+                str(error) if str(error) else "Enter a valid non-negative fund amount for each semester.",
+                "danger",
+            )
+            return redirect("/academic-terms")
+        except InvalidOperation:
+            flash("Enter a valid non-negative fund amount for each semester.", "danger")
+            return redirect("/academic-terms")
+
+        set_active = request.form.get("is_active") == "on"
+        active_semester = request.form.get("active_semester", "")
+        semester_names = {semester for semester, _ in semester_definitions}
+        if set_active and active_semester not in semester_names:
+            flash("Choose which semester should be active.", "danger")
+            return redirect("/academic-terms")
 
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            """
-            INSERT INTO school_terms
-            (academic_year, semester, start_date, end_date, is_active)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (academic_year, semester, start_date, end_date, is_active),
+            "SELECT id FROM school_terms WHERE academic_year=%s LIMIT 1",
+            (academic_year,),
         )
-        conn.commit()
-        conn.close()
+        if cursor.fetchone():
+            cursor.close()
+            conn.close()
+            flash("That academic year already exists.", "danger")
+            return redirect("/academic-terms")
+
+        try:
+            if set_active:
+                cursor.execute("UPDATE school_terms SET is_active=FALSE")
+            for semester, start_date, end_date, fund_amount in semester_values:
+                cursor.execute(
+                    """
+                    INSERT INTO school_terms
+                    (academic_year, semester, start_date, end_date, fund_amount, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        academic_year,
+                        semester,
+                        start_date,
+                        end_date,
+                        fund_amount,
+                        set_active and semester == active_semester,
+                    ),
+                )
+            conn.commit()
+        except mysql.connector.Error:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
 
         return redirect("/academic-terms")
 
-    return render_template("admin/add_academic_term.html")
+    return redirect("/academic-terms")
 
 
 @admin_bp.route("/edit-academic-term/<id>", methods=["GET", "POST"])
@@ -403,18 +536,59 @@ def edit_academic_term(id):
         semester = request.form["semester"]
         start_date = request.form.get("start_date", None)
         end_date = request.form.get("end_date", None)
+        try:
+            raw_fund_amount = request.form.get("fund_amount")
+            if raw_fund_amount is None:
+                raise InvalidOperation
+            fund_amount = Decimal(raw_fund_amount)
+            if not fund_amount.is_finite() or fund_amount < 0 or fund_amount > Decimal("99999999.99"):
+                raise InvalidOperation
+            fund_amount = fund_amount.quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            conn.close()
+            flash("Enter a valid non-negative fund amount.", "danger")
+            return redirect("/academic-terms")
         is_active = request.form.get("is_active", False)
         is_active = is_active == "on"
 
         cursor = conn.cursor()
+        cursor.execute("SELECT id FROM school_terms WHERE id=%s", (id,))
+        if not cursor.fetchone():
+            conn.close()
+            flash("Semester not found.", "danger")
+            return redirect("/academic-terms")
+        cursor.execute(
+            """
+            SELECT id FROM school_terms
+            WHERE academic_year=%s AND semester=%s AND id<>%s
+            LIMIT 1
+            """,
+            (academic_year, semester, id),
+        )
+        if cursor.fetchone():
+            conn.close()
+            flash("That academic year and semester already exist.", "danger")
+            return redirect("/academic-terms")
+        if is_active:
+            cursor.execute("UPDATE school_terms SET is_active=FALSE")
         cursor.execute(
             """
             UPDATE school_terms
-            SET academic_year=%s, semester=%s, start_date=%s, end_date=%s, is_active=%s
+            SET academic_year=%s, semester=%s, start_date=%s, end_date=%s,
+                fund_amount=%s, is_active=%s
             WHERE id=%s
             """,
-            (academic_year, semester, start_date, end_date, is_active, id),
+            (academic_year, semester, start_date, end_date, fund_amount, is_active, id),
         )
+        cursor.execute(
+            """
+            UPDATE transactions
+            SET academic_year=%s, semester=%s
+            WHERE semester_id=%s
+            """,
+            (academic_year, semester, id),
+        )
+        semester_model.reprice_semester_funds(cursor, id, fund_amount)
         conn.commit()
         conn.close()
         return redirect("/academic-terms")
@@ -423,7 +597,7 @@ def edit_academic_term(id):
     term = cursor.fetchone()
     conn.close()
 
-    return render_template("admin/edit_academic_term.html", term=term)
+    return redirect("/academic-terms")
 
 
 @admin_bp.route("/delete-academic-term/<id>", methods=["GET", "POST"])
@@ -436,6 +610,22 @@ def delete_academic_term(id):
 
     if request.method == "POST":
         cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM semester_enrollments WHERE semester_id=%s) +
+                (SELECT COUNT(*) FROM events WHERE semester_id=%s) +
+                (SELECT COUNT(*) FROM student_funds WHERE semester_id=%s) +
+                (SELECT COUNT(*) FROM fines WHERE semester_id=%s) +
+                (SELECT COUNT(*) FROM attendance WHERE semester_id=%s) +
+                (SELECT COUNT(*) FROM transactions WHERE semester_id=%s) AS linked_rows
+            """,
+            (id, id, id, id, id, id),
+        )
+        if cursor.fetchone()[0]:
+            conn.close()
+            flash("This semester has enrollment or historical records and cannot be deleted.", "danger")
+            return redirect("/academic-terms")
         cursor.execute("DELETE FROM school_terms WHERE id=%s", (id,))
         conn.commit()
         conn.close()
@@ -449,6 +639,108 @@ def delete_academic_term(id):
     return render_template("admin/delete_academic_term.html", term=term)
 
 
+@admin_bp.route("/academic-terms/<int:semester_id>/students")
+@require_admin
+def semester_students(semester_id):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM school_terms WHERE id=%s", (semester_id,))
+    semester = cursor.fetchone()
+    if not semester:
+        conn.close()
+        return redirect("/academic-terms")
+    cursor.execute(
+        """
+        SELECT s.id, s.student_id, s.firstname, s.lastname, s.course, s.year_level,
+               se.status, se.enrolled_at, se.dropped_at
+        FROM students s
+        LEFT JOIN semester_enrollments se
+          ON se.student_id=s.id AND se.semester_id=%s
+        ORDER BY s.lastname, s.firstname
+        """,
+        (semester_id,),
+    )
+    students = cursor.fetchall()
+    conn.close()
+    return render_template(
+        "admin/semester_students.html",
+        semester=semester,
+        students=students,
+    )
+
+
+@admin_bp.route(
+    "/academic-terms/<int:semester_id>/students/<int:student_id>/enroll",
+    methods=["POST"],
+)
+@require_admin
+def enroll_semester_student(semester_id, student_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT student_id FROM students WHERE id=%s",
+        (student_id,),
+    )
+    student_key = cursor.fetchone()
+    if not student_key:
+        conn.close()
+        flash("Student not found.", "danger")
+        return redirect(f"/academic-terms/{semester_id}/students")
+    cursor.execute(
+        "SELECT status FROM semester_enrollments WHERE semester_id=%s AND student_id=%s",
+        (semester_id, student_id),
+    )
+    existing_enrollment = cursor.fetchone()
+    if existing_enrollment:
+        conn.close()
+        flash("This student already has an enrollment record for the semester.", "warning")
+        return redirect(f"/academic-terms/{semester_id}/students")
+    cursor.execute(
+        "SELECT id FROM school_terms WHERE id=%s",
+        (semester_id,),
+    )
+    if not cursor.fetchone():
+        conn.close()
+        flash("Semester not found.", "danger")
+        return redirect("/academic-terms")
+    semester_model.enroll_student(
+        cursor,
+        semester_id,
+        student_id,
+        student_key[0] or str(student_id),
+    )
+    conn.commit()
+    conn.close()
+    flash("Student enrolled. The semester fund has been added to their balance.", "success")
+    return redirect(f"/academic-terms/{semester_id}/students")
+
+
+@admin_bp.route(
+    "/academic-terms/<int:semester_id>/students/<int:student_id>/drop",
+    methods=["POST"],
+)
+@require_admin
+def drop_semester_student(semester_id, student_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE semester_enrollments
+        SET status='dropped', dropped_at=CURRENT_TIMESTAMP
+        WHERE semester_id=%s AND student_id=%s AND status='enrolled'
+        """,
+        (semester_id, student_id),
+    )
+    if cursor.rowcount:
+        conn.commit()
+        flash("Student dropped. Existing funds and fines remain on the account.", "success")
+    else:
+        conn.rollback()
+        flash("No active enrollment was found for this student.", "warning")
+    conn.close()
+    return redirect(f"/academic-terms/{semester_id}/students")
+
+
 # Finance Routes - Department Funds + Fines
 @admin_bp.route("/finance")
 @require_admin
@@ -459,6 +751,7 @@ def finance():
     # Get filter parameters
     year_level = request.args.get('year_level', '')
     course = request.args.get('course', '')
+    semester_id = request.args.get('semester_id', '')
     
     # Get list of year levels and courses for filters
     cursor.execute("""
@@ -469,33 +762,19 @@ def finance():
     year_levels = [row['year_level'] for row in cursor.fetchall()]
     
     courses = ['BLIS', 'BSIS', 'BSCS']
-    
-    # Build query for student funds and fines
-    query = """
-        SELECT 
-            s.id AS id,
-            s.student_id,
-            s.firstname,
-            s.lastname,
-            s.course,
-            s.year_level,
-            COALESCE(SUM(CASE WHEN sf.amount_due > 0 THEN sf.amount_due ELSE 0 END), 0) as total_funds,
-            COALESCE(SUM(CASE WHEN f.amount > 0 THEN f.amount ELSE 0 END), 0) as total_fines
-        FROM students s
-        LEFT JOIN student_funds sf ON COALESCE(s.student_id, CAST(s.id AS CHAR)) = sf.student_id
-        LEFT JOIN fines f ON COALESCE(s.student_id, CAST(s.id AS CHAR)) = f.student_id
-        WHERE s.status = 'Active'
-    """
-    
-    params = []
-
-    if course:
-        query += " AND s.course = %s"
-        params.append(course)
-
-    if year_level:
-        query += " AND s.year_level = %s"
-        params.append(year_level)
+    cursor.execute(
+        """
+        SELECT id, academic_year, semester
+        FROM school_terms
+        ORDER BY academic_year DESC, semester
+        """
+    )
+    terms = cursor.fetchall()
+    if semester_id:
+        if not semester_id.isdigit() or int(semester_id) not in {term["id"] for term in terms}:
+            conn.close()
+            return "Choose a valid semester.", 400
+        semester_id = int(semester_id)
 
     # Run event fines sync asynchronously so the page doesn't block while recalculating
     try:
@@ -510,6 +789,8 @@ def finance():
             pass
 
     # Use subqueries to fetch per-student aggregates. This avoids large GROUP BY joins
+    funds_semester_filter = " AND sf.semester_id=%s" if semester_id else ""
+    fines_semester_filter = " AND f.semester_id=%s" if semester_id else ""
     query = """
         SELECT
             s.id AS id,
@@ -522,39 +803,37 @@ def finance():
                 SELECT COALESCE(SUM(sf.amount_due), 0)
                 FROM student_funds sf
                 WHERE sf.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+                {funds_semester_filter}
             ) AS total_funds,
             (
                 SELECT COALESCE(SUM(f.amount), 0)
                 FROM fines f
                 WHERE f.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+                {fines_semester_filter}
             ) AS total_fines
         FROM students s
         WHERE s.status = 'Active'
-    """
+    """.format(
+        funds_semester_filter=funds_semester_filter,
+        fines_semester_filter=fines_semester_filter,
+    )
 
+    params = []
+    if semester_id:
+        params.extend([semester_id, semester_id])
     if course:
         query += " AND s.course = %s"
+        params.append(course)
 
     if year_level:
         query += " AND s.year_level = %s"
+        params.append(year_level)
 
     query += " ORDER BY s.lastname, s.firstname"
 
     cursor.execute(query, params)
     students_data = cursor.fetchall()
 
-    cursor.execute("""
-        SELECT DISTINCT academic_year FROM school_terms
-        ORDER BY academic_year DESC
-    """)
-    academic_years = [row["academic_year"] for row in cursor.fetchall()]
-
-    cursor.execute("""
-        SELECT DISTINCT semester FROM school_terms
-        ORDER BY semester
-    """)
-    semesters = [row["semester"] for row in cursor.fetchall()]
-    
     cursor.close()
     conn.close()
     
@@ -565,8 +844,8 @@ def finance():
         courses=courses,
         selected_year_level=year_level,
         selected_course=course,
-        academic_years=academic_years,
-        semesters=semesters
+        terms=terms,
+        selected_semester_id=semester_id
     )
 
 
@@ -691,7 +970,11 @@ def get_student_attendance_history(student_key):
     if not student:
         return jsonify({'success': False, 'message': 'Student not found'}), 404
 
-    events = event_model.get_all_events()
+    enrolled_semester_ids = semester_model.get_student_semester_ids(student['id'])
+    events = [
+        event for event in event_model.get_all_events()
+        if event.get('semester_id') in enrolled_semester_ids
+    ]
     attendance_records = attendance_model.get_attendance_for_student(student['id'])
     records_by_event = {}
     for record in attendance_records:
@@ -740,6 +1023,20 @@ def get_student_attendance_history(student_key):
 def get_student_balance(student_id):
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
+    selected_semester_id = request.args.get("semester_id")
+    if selected_semester_id:
+        if not selected_semester_id.isdigit():
+            cursor.close()
+            conn.close()
+            return {"error": "Choose a valid semester."}, 400
+        cursor.execute(
+            "SELECT id FROM school_terms WHERE id=%s",
+            (selected_semester_id,),
+        )
+        if not cursor.fetchone():
+            cursor.close()
+            conn.close()
+            return {"error": "Choose a valid semester."}, 400
     
     # Get student info
     cursor.execute(
@@ -767,18 +1064,30 @@ def get_student_balance(student_id):
     payment_key = student['student_id'] or str(student['id'])
     
     # Get total funds balance
-    cursor.execute("""
-        SELECT COALESCE(SUM(amount_due), 0) as total_funds 
-        FROM student_funds WHERE student_id = %s
-    """, (payment_key,))
+    funds_query = """
+        SELECT COALESCE(SUM(amount_due), 0) as total_funds
+        FROM student_funds
+        WHERE student_id = %s
+    """
+    funds_params = [payment_key]
+    if selected_semester_id:
+        funds_query += " AND semester_id=%s"
+        funds_params.append(selected_semester_id)
+    cursor.execute(funds_query, tuple(funds_params))
     funds = cursor.fetchone()
     total_funds = float(funds['total_funds']) if funds else 0
     
     # Get total fines balance
-    cursor.execute("""
-        SELECT COALESCE(SUM(amount), 0) as total_fines 
-        FROM fines WHERE student_id = %s
-    """, (payment_key,))
+    fines_query = """
+        SELECT COALESCE(SUM(amount), 0) as total_fines
+        FROM fines
+        WHERE student_id = %s
+    """
+    fines_params = [payment_key]
+    if selected_semester_id:
+        fines_query += " AND semester_id=%s"
+        fines_params.append(selected_semester_id)
+    cursor.execute(fines_query, tuple(fines_params))
     fines = cursor.fetchone()
     total_fines = float(fines['total_fines']) if fines else 0
     
@@ -792,6 +1101,7 @@ def get_student_balance(student_id):
         "lastname": student['lastname'],
         "course": student['course'],
         "year_level": student['year_level'],
+        "semester_id": int(selected_semester_id) if selected_semester_id else None,
         "total_funds": total_funds,
         "total_fines": total_fines,
         "total_balance": total_funds + total_fines
@@ -848,9 +1158,36 @@ def payments():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     ensure_transaction_balance_snapshots(cursor)
-    
-    # Get recent transactions
+
     cursor.execute("""
+        SELECT id, academic_year, semester
+        FROM school_terms
+        ORDER BY academic_year DESC,
+                 CASE semester
+                     WHEN '1st Semester' THEN 1
+                     WHEN '2nd Semester' THEN 2
+                     ELSE 3
+                 END,
+                 semester
+    """)
+    terms = cursor.fetchall()
+    academic_years = sorted(
+        {term["academic_year"] for term in terms},
+        reverse=True,
+    )
+    selected_academic_year = request.args.get("academic_year", "").strip()
+    if selected_academic_year not in academic_years:
+        selected_academic_year = ""
+
+    available_terms = [
+        term for term in terms
+        if term["academic_year"] == selected_academic_year
+    ]
+    selected_semester_id = request.args.get("semester_id", "").strip()
+    if not any(str(term["id"]) == selected_semester_id for term in available_terms):
+        selected_semester_id = ""
+
+    query = """
         SELECT 
             t.id,
             t.student_id,
@@ -866,32 +1203,51 @@ def payments():
         FROM transactions t
         JOIN students s ON t.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
         LEFT JOIN transaction_balance_snapshots snapshot ON snapshot.transaction_id = t.id
+    """
+    filters = []
+    params = []
+    if selected_academic_year:
+        filters.append("t.academic_year=%s")
+        params.append(selected_academic_year)
+    if selected_semester_id:
+        selected_term = next(
+            term for term in available_terms
+            if str(term["id"]) == selected_semester_id
+        )
+        filters.append(
+            """
+            (t.semester_id=%s OR (
+                t.semester_id IS NULL
+                AND t.academic_year=%s
+                AND t.semester=%s
+            ))
+            """
+        )
+        params.extend([
+            int(selected_semester_id),
+            selected_term["academic_year"],
+            selected_term["semester"],
+        ])
+    if filters:
+        query += " WHERE " + " AND ".join(filters)
+    query += """
         ORDER BY t.transaction_date DESC
         LIMIT 50
-    """)
+    """
+    cursor.execute(query, tuple(params))
     recent_transactions = cursor.fetchall()
-    
-    # Get academic years and semesters for the form
-    cursor.execute("""
-        SELECT DISTINCT academic_year FROM school_terms 
-        ORDER BY academic_year DESC
-    """)
-    academic_years = [row['academic_year'] for row in cursor.fetchall()]
-    
-    cursor.execute("""
-        SELECT DISTINCT semester FROM school_terms 
-        ORDER BY semester
-    """)
-    semesters = [row['semester'] for row in cursor.fetchall()]
-    
+
     cursor.close()
     conn.close()
     
     return render_template(
         "admin/payments.html",
         transactions=recent_transactions,
+        terms=terms,
         academic_years=academic_years,
-        semesters=semesters
+        selected_academic_year=selected_academic_year,
+        available_terms=available_terms,
+        selected_semester_id=selected_semester_id,
     )
 
 
@@ -1098,10 +1454,28 @@ def upload_csv():
                 conn.start_transaction()
                 cursor.execute(
                     """
-                    SELECT id, student_id, firstname, lastname, course, year_level
-                    FROM students
+                    SELECT id
+                    FROM school_terms
+                    WHERE is_active=TRUE
+                    ORDER BY id DESC
+                    LIMIT 1
                     FOR UPDATE
                     """
+                )
+                active_term = cursor.fetchone()
+                if not active_term:
+                    raise ValueError("Activate a semester before importing balances.")
+                cursor.execute(
+                    """
+                    SELECT s.id, s.student_id, s.firstname, s.lastname, s.course, s.year_level
+                    FROM students s
+                    JOIN semester_enrollments se
+                      ON se.student_id=s.id
+                     AND se.semester_id=%s
+                     AND se.status='enrolled'
+                    FOR UPDATE
+                    """,
+                    (active_term['id'],),
                 )
                 students_by_key = {}
                 for student in cursor.fetchall():
@@ -1144,18 +1518,18 @@ def upload_csv():
                     if import_type == 'Funds':
                         cursor.execute(
                             """
-                            INSERT INTO student_funds (student_id, fund_id, amount_due)
-                            VALUES (%s, NULL, %s)
+                            INSERT INTO student_funds (student_id, semester_id, fund_id, amount_due)
+                            VALUES (%s, %s, NULL, %s)
                             """,
-                            (student_key, amount_due),
+                            (student_key, active_term['id'], amount_due),
                         )
                     else:
                         cursor.execute(
                             """
-                            INSERT INTO fines (student_id, event_id, fine_type, amount)
-                            VALUES (%s, NULL, NULL, %s)
+                            INSERT INTO fines (student_id, semester_id, event_id, fine_type, amount)
+                            VALUES (%s, %s, NULL, NULL, %s)
                             """,
-                            (student_key, amount_due),
+                            (student_key, active_term['id'], amount_due),
                         )
                 conn.commit()
                 imported_count = len(matched_rows)
@@ -1210,9 +1584,12 @@ def process_payment():
     amount = data.get('amount')
     academic_year = data.get('academic_year')
     semester = data.get('semester')
+    semester_id = data.get('semester_id')
     
     # Validate input
-    if not all([student_id, transaction_type, payment_type, amount, academic_year, semester]):
+    if not all([student_id, transaction_type, payment_type, amount]) or (
+        not semester_id and not all([academic_year, semester])
+    ):
         return {"error": "Missing required fields"}, 400
     if transaction_type not in {"Funds", "Fines"}:
         return {"error": "Choose Funds or Fines for the transaction type"}, 400
@@ -1220,10 +1597,11 @@ def process_payment():
         return {"error": "Choose Partial or Full for the payment type"}, 400
     
     try:
-        amount = float(amount)
-        if amount <= 0:
+        amount = Decimal(str(amount))
+        if not amount.is_finite() or amount <= 0:
             return {"error": "Amount must be greater than 0"}, 400
-    except ValueError:
+        amount = amount.quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
         return {"error": "Invalid amount"}, 400
 
     if transaction_type == "Fines":
@@ -1261,12 +1639,40 @@ def process_payment():
     
     try:
         # Log the transaction
+        if semester_id:
+            cursor.execute(
+                """
+                SELECT id, academic_year, semester
+                FROM school_terms
+                WHERE id=%s
+                LIMIT 1
+                """,
+                (semester_id,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT id, academic_year, semester
+                FROM school_terms
+                WHERE academic_year=%s AND semester=%s
+                LIMIT 1
+                """,
+                (academic_year, semester),
+            )
+        term_row = cursor.fetchone()
+        if not term_row:
+            return {"error": "Select a valid semester for this payment."}, 400
+        semester_id = term_row["id"]
+        academic_year = term_row["academic_year"]
+        semester = term_row["semester"]
+
         cursor.execute("""
             INSERT INTO transactions 
-            (student_id, transaction_type, payment_type, amount, academic_year, semester, created_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (student_id, semester_id, transaction_type, payment_type, amount, academic_year, semester, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             payment_key,
+            semester_id,
             transaction_type,
             payment_type,
             amount,
@@ -1287,13 +1693,13 @@ def process_payment():
         if transaction_type == 'Funds':
             cursor.execute(
                 """
-                SELECT id, amount_due
+                SELECT id, amount_due, paid_amount
                 FROM student_funds
-                WHERE student_id = %s AND amount_due > 0
+                WHERE student_id = %s AND semester_id=%s AND amount_due > 0
                 ORDER BY amount_due ASC, id ASC
                 FOR UPDATE
                 """,
-                (payment_key,),
+                (payment_key, semester_id),
             )
             fund_rows = cursor.fetchall()
             for row in fund_rows:
@@ -1305,10 +1711,10 @@ def process_payment():
                 cursor.execute(
                     """
                     UPDATE student_funds
-                    SET amount_due = %s
+                    SET amount_due = %s, paid_amount = paid_amount + %s
                     WHERE id = %s AND student_id = %s
                     """,
-                    (after_amount, row['id'], payment_key),
+                    (after_amount, deduct, row['id'], payment_key),
                 )
                 balance_snapshot.append({
                     'row_id': row['id'],
@@ -1321,11 +1727,11 @@ def process_payment():
                 """
                 SELECT fine_id, event_id, fine_type, amount
                 FROM fines
-                WHERE student_id = %s AND amount > 0
+                WHERE student_id = %s AND semester_id=%s AND amount > 0
                 ORDER BY event_id, fine_id
                 FOR UPDATE
                 """,
-                (payment_key,),
+                (payment_key, semester_id),
             )
             fine_rows = cursor.fetchall()
             for row in fine_rows:
@@ -1502,14 +1908,31 @@ def delete_transaction(transaction_id):
             balances_to_restore.append(item)
 
         for item in balances_to_restore:
-            cursor.execute(
-                f"""
-                UPDATE {table}
-                SET {amount_column} = %s
-                WHERE {key_column} = %s AND student_id = %s
-                """,
-                (item['before'], item['row_id'], transaction['student_id']),
-            )
+            if transaction['transaction_type'] == 'Funds':
+                paid_for_transaction = Decimal(item['before']) - Decimal(item['after'])
+                cursor.execute(
+                    """
+                    UPDATE student_funds
+                    SET amount_due=%s,
+                        paid_amount=GREATEST(paid_amount-%s, 0)
+                    WHERE id=%s AND student_id=%s
+                    """,
+                    (
+                        item['before'],
+                        paid_for_transaction,
+                        item['row_id'],
+                        transaction['student_id'],
+                    ),
+                )
+            else:
+                cursor.execute(
+                    f"""
+                    UPDATE {table}
+                    SET {amount_column} = %s
+                    WHERE {key_column} = %s AND student_id = %s
+                    """,
+                    (item['before'], item['row_id'], transaction['student_id']),
+                )
 
         cursor.execute(
             "DELETE FROM transaction_balance_snapshots WHERE transaction_id = %s",

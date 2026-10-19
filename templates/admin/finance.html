@@ -10,7 +10,7 @@ Funds & Fines
     <div>
         <p class="eyebrow">FINANCE</p>
         <h3 class="mb-1">Funds & Fines Overview</h3>
-        <p class="text-muted mb-0">View and manage student fund and fine balances across all courses and academic years.</p>
+        <p class="text-muted mb-0">View student balances for an individual semester or across all recorded semesters.</p>
     </div>
     <div class="page-actions">
         <button type="button" class="btn btn-outline-warning rounded-pill px-4"
@@ -96,6 +96,17 @@ Funds & Fines
                     <option value="">All Years</option>
                     {% for year in year_levels %}
                     <option value="{{ year }}" {% if year|string == selected_year_level|string %}selected{% endif %}>Year {{ year }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="semester-filter">Filter by Semester</label>
+                <select id="semester-filter" name="semester_id" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Semesters</option>
+                    {% for term in terms %}
+                    <option value="{{ term.id }}" {% if term.id|string == selected_semester_id|string %}selected{% endif %}>
+                        {{ term.academic_year }} · {{ term.semester }}
+                    </option>
                     {% endfor %}
                 </select>
             </div>
@@ -798,7 +809,9 @@ if (studentIdInput) {
 }
 
 function fetchStudentBalance(studentId) {
-    fetch(`/api/student-balance/${studentId}`)
+    const semesterId = {{ selected_semester_id|tojson }};
+    const semesterQuery = semesterId ? `?semester_id=${encodeURIComponent(semesterId)}` : '';
+    fetch(`/api/student-balance/${encodeURIComponent(studentId)}${semesterQuery}`)
         .then(response => {
             if (!response.ok) throw new Error('Student not found');
             return response.json();

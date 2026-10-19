@@ -16,10 +16,10 @@ Academic Terms
         <div>
             <p class="eyebrow">MANAGEMENT</p>
             <h3 class="mb-2">Academic Terms</h3>
-            <p class="text-muted mb-0">Define and manage school terms and semesters.</p>
+            <p class="text-muted mb-0">Each academic year contains 1st Semester, 2nd Semester, and Summer Class.</p>
         </div>
         <button type="button" class="btn btn-dark rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#addTermModal">
-            + Add Term
+            + Add Academic Year
         </button>
     </div>
 
@@ -37,6 +37,8 @@ Academic Terms
                 {% endif %}
             </div>
             <div class="term-dates">
+                <p><span class="label">Fund Amount:</span> PHP {{ "%.2f"|format(term.fund_amount or 0) }}</p>
+                <p><span class="label">Enrolled:</span> {{ term.enrolled_count }}</p>
                 {% if term.start_date %}
                 <p><span class="label">Start:</span> {{ term.start_date }}</p>
                 {% endif %}
@@ -45,7 +47,10 @@ Academic Terms
                 {% endif %}
             </div>
             <div class="term-actions">
-                <button type="button" class="btn btn-sm btn-outline-dark rounded-pill" data-bs-toggle="modal" data-bs-target="#editTermModal" data-term-id="{{ term.id }}" data-term-year="{{ term.academic_year }}" data-term-semester="{{ term.semester }}" data-term-start="{{ term.start_date }}" data-term-end="{{ term.end_date }}" data-term-active="{{ term.is_active }}">
+                <a class="btn btn-sm btn-outline-primary rounded-pill" href="/academic-terms/{{ term.id }}/students">
+                    Manage Students
+                </a>
+                <button type="button" class="btn btn-sm btn-outline-dark rounded-pill" data-bs-toggle="modal" data-bs-target="#editTermModal" data-term-id="{{ term.id }}" data-term-year="{{ term.academic_year }}" data-term-semester="{{ term.semester }}" data-term-start="{{ term.start_date }}" data-term-end="{{ term.end_date }}" data-term-fund="{{ term.fund_amount }}" data-term-active="{{ term.is_active }}">
                     Edit
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-danger rounded-pill" data-bs-toggle="modal" data-bs-target="#deleteTermModal" data-term-id="{{ term.id }}" data-term-year="{{ term.academic_year }}">
@@ -65,46 +70,56 @@ Academic Terms
 
 <!-- Add Term Modal -->
 <div class="modal fade" id="addTermModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <form method="post" action="/add-academic-term">
-        <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
-          <h5 class="modal-title fw-bold">Add Academic Term</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <form class="modal-content" method="post" action="/add-academic-term">
+      <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
+        <h5 class="modal-title fw-bold">Add Academic Year</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-600">Academic Year</label>
+          <input type="text" name="academic_year" class="form-control rounded-lg" placeholder="e.g., 2026-2027" maxlength="20" required>
         </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label fw-600">Academic Year</label>
-            <input type="text" name="academic_year" class="form-control rounded-lg" placeholder="e.g., 2024-2025" required>
+        <p class="text-muted">All three semester records will be created. Set dates and fund amounts for each semester separately.</p>
+        {% for semester, prefix in [('1st Semester', 'first'), ('2nd Semester', 'second'), ('Summer Class', 'summer')] %}
+        <fieldset class="border rounded p-3 mb-3">
+          <legend class="float-none w-auto px-2 fs-6 fw-bold">{{ semester }}</legend>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="{{ prefix }}StartDate">Start Date</label>
+              <input type="date" name="{{ prefix }}_start_date" id="{{ prefix }}StartDate" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="{{ prefix }}EndDate">End Date</label>
+              <input type="date" name="{{ prefix }}_end_date" id="{{ prefix }}EndDate" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="{{ prefix }}FundAmount">Fund Amount (PHP)</label>
+              <input type="number" name="{{ prefix }}_fund_amount" id="{{ prefix }}FundAmount" class="form-control" min="0" max="99999999.99" step="0.01" value="0.00" required>
+            </div>
           </div>
-          <div class="mb-3">
-            <label class="form-label fw-600">Semester</label>
-            <select name="semester" class="form-select rounded-lg" required>
-              <option value="">Select Semester</option>
-              <option value="First Semester">First Semester</option>
-              <option value="Second Semester">Second Semester</option>
-              <option value="Summer">Summer</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-600">Start Date</label>
-            <input type="date" name="start_date" class="form-control rounded-lg">
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-600">End Date</label>
-            <input type="date" name="end_date" class="form-control rounded-lg">
-          </div>
-          <div class="mb-3 form-check">
-            <input type="checkbox" name="is_active" class="form-check-input" id="isActive">
-            <label class="form-check-label" for="isActive">Set as Active Term</label>
-          </div>
+        </fieldset>
+        {% endfor %}
+        <div class="mb-3 form-check">
+          <input type="checkbox" name="is_active" class="form-check-input" id="isActive">
+          <label class="form-check-label" for="isActive">Set one semester as active</label>
         </div>
-        <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
-          <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-dark rounded-pill">Save Term</button>
+        <div class="mb-3" id="activeSemesterGroup" hidden>
+          <label class="form-label fw-600" for="activeSemesterSelect">Choose the active semester</label>
+          <select name="active_semester" id="activeSemesterSelect" class="form-select">
+            <option value="">Select semester</option>
+            <option value="1st Semester">1st Semester</option>
+            <option value="2nd Semester">2nd Semester</option>
+            <option value="Summer Class">Summer Class</option>
+          </select>
         </div>
-      </form>
-    </div>
+      </div>
+      <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
+        <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-dark rounded-pill">Create Academic Year</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -125,9 +140,10 @@ Academic Terms
           <div class="mb-3">
             <label class="form-label fw-600">Semester</label>
             <select name="semester" id="editTermSemester" class="form-select rounded-lg" required>
-              <option value="First Semester">First Semester</option>
-              <option value="Second Semester">Second Semester</option>
-              <option value="Summer">Summer</option>
+              <option value="1st Semester">1st Semester</option>
+              <option value="2nd Semester">2nd Semester</option>
+              <option value="Summer Class">Summer Class</option>
+              <option value="Summer">Summer (legacy)</option>
             </select>
           </div>
           <div class="mb-3">
@@ -137,6 +153,11 @@ Academic Terms
           <div class="mb-3">
             <label class="form-label fw-600">End Date</label>
             <input type="date" name="end_date" id="editTermEnd" class="form-control rounded-lg">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-600">Fund Amount (PHP)</label>
+            <input type="number" name="fund_amount" id="editTermFundAmount" class="form-control rounded-lg" min="0" step="0.01" required>
+            <div class="form-text">Changing the amount updates tracked semester charges and preserves payments. Legacy balances remain unchanged.</div>
           </div>
           <div class="mb-3 form-check">
             <input type="checkbox" name="is_active" id="editTermActive" class="form-check-input">
@@ -248,6 +269,16 @@ Academic Terms
 </style>
 
 <script>
+const activeTermCheckbox = document.getElementById('isActive');
+const activeSemesterGroup = document.getElementById('activeSemesterGroup');
+const activeSemesterSelect = document.getElementById('activeSemesterSelect');
+
+activeTermCheckbox.addEventListener('change', function () {
+    activeSemesterGroup.hidden = !this.checked;
+    activeSemesterSelect.required = this.checked;
+    if (!this.checked) activeSemesterSelect.value = '';
+});
+
 const editTermModal = document.getElementById('editTermModal');
 editTermModal.addEventListener('show.bs.modal', function (event) {
     const button = event.relatedTarget;
@@ -256,6 +287,7 @@ editTermModal.addEventListener('show.bs.modal', function (event) {
     document.getElementById('editTermSemester').value = button.getAttribute('data-term-semester');
     document.getElementById('editTermStart').value = button.getAttribute('data-term-start') || '';
     document.getElementById('editTermEnd').value = button.getAttribute('data-term-end') || '';
+    document.getElementById('editTermFundAmount').value = button.getAttribute('data-term-fund') || '0.00';
     document.getElementById('editTermActive').checked = button.getAttribute('data-term-active') === 'True' || button.getAttribute('data-term-active') === '1';
     document.getElementById('editTermForm').action = '/edit-academic-term/' + termId;
 });

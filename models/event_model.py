@@ -1,7 +1,7 @@
 import json
 
 from config import get_db_connection
-from models import attendance_model, student_model
+from models import attendance_model, semester_model, student_model
 from datetime import datetime, date, timedelta, time
 from decimal import Decimal
 
@@ -34,6 +34,8 @@ def ensure_event_columns():
 		alter_clauses.append('ADD COLUMN absent_fine DECIMAL(10,2) NOT NULL DEFAULT 0')
 	if 'late_fine' not in existing_columns:
 		alter_clauses.append('ADD COLUMN late_fine DECIMAL(10,2) NOT NULL DEFAULT 0')
+	if 'semester_id' not in existing_columns:
+		alter_clauses.append('ADD COLUMN semester_id INT NULL')
 
 	if alter_clauses:
 		cursor.execute(f"ALTER TABLE events {', '.join(alter_clauses)}")
@@ -198,11 +200,13 @@ def ensure_paper_attendance_table():
 		"""
 		CREATE TABLE IF NOT EXISTS paper_attendance (
 			event_id INT NOT NULL,
+			semester_id INT NULL,
 			student_id INT NOT NULL,
 			status VARCHAR(16) NOT NULL,
 			recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (event_id, student_id),
-			INDEX (student_id)
+			INDEX (student_id),
+			INDEX idx_paper_attendance_semester (semester_id)
 		)
 		"""
 	)
@@ -244,11 +248,13 @@ def save_paper_attendance(event_id, student_id, status):
 	cursor = conn.cursor()
 	cursor.execute(
 		"""
-		INSERT INTO paper_attendance (event_id, student_id, status)
-		VALUES (%s, %s, %s)
+		INSERT INTO paper_attendance (event_id, semester_id, student_id, status)
+		SELECT event_id, semester_id, %s, %s
+		FROM events
+		WHERE event_id=%s
 		ON DUPLICATE KEY UPDATE status=VALUES(status)
 		""",
-		(event_id, student_id, status),
+		(student_id, status, event_id),
 	)
 	conn.commit()
 	conn.close()
@@ -434,7 +440,10 @@ def get_all_events():
 	cursor.execute("""
 		SELECT
 			event_id AS id,
+			semester_id,
 			event_name AS name,
+			(SELECT academic_year FROM school_terms WHERE id=events.semester_id) AS academic_year,
+			(SELECT semester FROM school_terms WHERE id=events.semester_id) AS semester_name,
 			event_date AS date,
 			absent_fine,
 			late_fine,
@@ -456,12 +465,21 @@ def add_event(name, date, login_time=None, logout_time=None, login_cutoff_time=N
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	cursor.execute(
+		"SELECT id FROM school_terms WHERE is_active=TRUE ORDER BY id DESC LIMIT 1"
+	)
+	active_term = cursor.fetchone()
+	if not active_term:
+		cursor.close()
+		conn.close()
+		raise ValueError('Create or activate a semester before creating events.')
+	cursor.execute(
 		"""
 		INSERT INTO events
-			(event_name, event_date, absent_fine, late_fine, login_time, logout_time, login_cutoff_time, logout_cutoff_time, grace_period)
-		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+			(semester_id, event_name, event_date, absent_fine, late_fine, login_time, logout_time, login_cutoff_time, logout_cutoff_time, grace_period)
+		VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 		""",
 		(
+			active_term[0],
 			name,
 			date,
 			absent_fine,
@@ -485,7 +503,10 @@ def get_event(event_id):
 		"""
 		SELECT
 			event_id AS id,
+			semester_id,
 			event_name AS name,
+			(SELECT academic_year FROM school_terms WHERE id=events.semester_id) AS academic_year,
+			(SELECT semester FROM school_terms WHERE id=events.semester_id) AS semester_name,
 			event_date AS date,
 			absent_fine,
 			late_fine,
@@ -594,20 +615,23 @@ def create_or_update_fine(student_id, event_id, fine_type, amount):
 		cursor.execute(
 			"""
 			UPDATE fines
-			SET amount=%s, assessed_amount=%s
+			SET amount=%s, assessed_amount=%s,
+			    semester_id=(SELECT semester_id FROM events WHERE event_id=%s)
 			WHERE fine_id=%s
 			""",
-			(amount_due, assessed_amount, fine[0]),
+			(amount_due, assessed_amount, event_id, fine[0]),
 		)
 	else:
 		amount_due = max(assessed_amount - allocated_paid, Decimal('0.00'))
 		cursor.execute(
 			"""
 			INSERT INTO fines
-				(student_id, event_id, fine_type, amount, assessed_amount)
-			VALUES (%s, %s, %s, %s, %s)
+				(student_id, semester_id, event_id, fine_type, amount, assessed_amount)
+			SELECT %s, semester_id, %s, %s, %s, %s
+			FROM events
+			WHERE event_id=%s
 			""",
-			(student_id, event_id, fine_type, amount_due, assessed_amount),
+			(student_id, event_id, fine_type, amount_due, assessed_amount, event_id),
 		)
 	conn.commit()
 	cursor.close()
@@ -707,9 +731,16 @@ def sync_fines_for_event(event):
 	if not event or not event.get('id'):
 		return
 
+	enrolled_student_ids = semester_model.get_enrolled_student_ids(event.get('semester_id'))
+	if not enrolled_student_ids:
+		return
+
 	ensure_fine_assessment_column()
 	ensure_fine_payment_allocations()
-	students = student_model.get_all_students()
+	students = [
+		student for student in student_model.get_all_students()
+		if student.get('id') in enrolled_student_ids
+	]
 	exempted_student_ids = get_event_exemption_ids(event['id'])
 	paper_attendance = get_paper_attendance_for_event(event['id'])
 	if not is_event_closed(event):
@@ -787,7 +818,10 @@ def get_active_events():
 	cursor.execute("""
 		SELECT
 			event_id AS id,
+			semester_id,
 			event_name AS name,
+			(SELECT academic_year FROM school_terms WHERE id=events.semester_id) AS academic_year,
+			(SELECT semester FROM school_terms WHERE id=events.semester_id) AS semester_name,
 			event_date AS date,
 			absent_fine,
 			late_fine,

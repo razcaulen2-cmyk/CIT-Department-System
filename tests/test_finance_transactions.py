@@ -75,7 +75,7 @@ class FineAssessmentTests(unittest.TestCase):
 
         self.assertEqual(
             cursor.queries[-1][1],
-            (Decimal("50.00"), Decimal("100.00"), 17),
+            (Decimal("50.00"), Decimal("100.00"), 4, 17),
         )
         self.assertIn("FOR UPDATE", cursor.queries[0][0])
 
@@ -88,7 +88,7 @@ class FineAssessmentTests(unittest.TestCase):
 
         self.assertEqual(
             cursor.queries[-1][1],
-            (Decimal("70.00"), Decimal("120.00"), 17),
+            (Decimal("70.00"), Decimal("120.00"), 4, 17),
         )
 
     def test_recreated_fine_uses_payment_allocation(self):
@@ -101,7 +101,7 @@ class FineAssessmentTests(unittest.TestCase):
         self.assertIn("INSERT INTO fines", cursor.queries[-1][0])
         self.assertEqual(
             cursor.queries[-1][1],
-            ("000123", 4, "Absent", Decimal("0.00"), Decimal("25.00")),
+            ("000123", 4, "Absent", Decimal("0.00"), Decimal("25.00"), 4),
         )
 
 
