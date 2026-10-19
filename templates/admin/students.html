@@ -17,6 +17,13 @@ Students
             <p class="eyebrow">MANAGEMENT</p>
             <h3 class="mb-2">Students</h3>
             <p class="text-muted mb-0">Add, edit, or remove student records and assign RFID tags.</p>
+            {% if active_semester %}
+            <p class="text-muted small mt-2 mb-0">
+                Active semester: {{ active_semester.academic_year }} · {{ active_semester.semester }}
+            </p>
+            {% else %}
+            <p class="text-warning small mt-2 mb-0">No active semester is set; new students cannot be enrolled yet.</p>
+            {% endif %}
         </div>
         <button type="button" class="btn btn-dark rounded-pill px-4" data-bs-toggle="modal" data-bs-target="#addStudentModal">
             + Add Student
@@ -122,7 +129,7 @@ Students
 <div class="modal fade" id="addStudentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
-      <form method="post" action="/add-student">
+      <form method="post" action="/add-student" id="addStudentForm">
         <div class="modal-header border-bottom" style="border-color: rgba(212, 175, 55, 0.25);">
           <h5 class="modal-title fw-bold">Add Student</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -144,6 +151,7 @@ Students
             <label class="form-label fw-600">Year Level</label>
             <input type="text" name="year_level" class="form-control rounded-lg" required>
           </div>
+          <input type="hidden" name="enroll_active_semester" id="enrollActiveSemester" value="0">
         </div>
         <div class="modal-footer border-top" style="border-color: rgba(212, 175, 55, 0.25);">
           <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Cancel</button>
@@ -153,6 +161,32 @@ Students
     </div>
   </div>
 </div>
+
+{% if active_semester %}
+<div class="modal fade" id="enrollNewStudentModal" tabindex="-1" aria-labelledby="enrollNewStudentTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold" id="enrollNewStudentTitle">Enroll in active semester?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        Would you like to enroll this student in
+        <strong>{{ active_semester.academic_year }} · {{ active_semester.semester }}</strong>?
+        {% if active_semester.fund_amount %}
+        Enrolling will add PHP {{ "%.2f"|format(active_semester.fund_amount) }} to their semester fund balance.
+        {% else %}
+        This semester currently has no fund charge.
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary rounded-pill" id="saveStudentWithoutEnrollment">Create without enrollment</button>
+        <button type="button" class="btn btn-dark rounded-pill" id="saveStudentAndEnroll">Create and enroll</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- Edit Student Modal -->
 <div class="modal fade" id="editStudentModal" tabindex="-1" aria-hidden="true">
@@ -415,6 +449,37 @@ Students
     studentSearchInput.addEventListener('input', applyFilters);
     studentCourseFilter.addEventListener('change', applyFilters);
     studentYearFilter.addEventListener('change', applyFilters);
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('addStudentForm');
+    const enrollChoice = document.getElementById('enrollActiveSemester');
+    const confirmModal = document.getElementById('enrollNewStudentModal');
+    if (!form || !enrollChoice || !confirmModal || !window.bootstrap) return;
+
+    let confirmed = false;
+    const addModal = document.getElementById('addStudentModal');
+    const choiceModal = bootstrap.Modal.getOrCreateInstance(confirmModal);
+
+    form.addEventListener('submit', (event) => {
+        if (confirmed) return;
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        addModal.addEventListener('hidden.bs.modal', () => choiceModal.show(), {once: true});
+        bootstrap.Modal.getOrCreateInstance(addModal).hide();
+    });
+
+    const finishCreation = (enroll) => {
+        enrollChoice.value = enroll ? '1' : '0';
+        confirmed = true;
+        choiceModal.hide();
+        form.requestSubmit();
+    };
+
+    document.getElementById('saveStudentWithoutEnrollment').addEventListener('click', () => finishCreation(false));
+    document.getElementById('saveStudentAndEnroll').addEventListener('click', () => finishCreation(true));
+});
 </script>
 
 {% endblock %}

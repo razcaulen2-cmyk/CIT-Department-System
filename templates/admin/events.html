@@ -16,7 +16,14 @@ Events
         <div>
             <p class="eyebrow">EVENTS</p>
             <h3 class="mb-1">Create and manage events</h3>
-            <p class="text-muted mb-0">Events drive attendance and fines. Create an event to start taking attendance.</p>
+            <p class="text-muted mb-0">
+                Events drive attendance and fines.
+                {% if active_semester %}
+                New events will belong to {{ active_semester.academic_year }} · {{ active_semester.semester }}.
+                {% else %}
+                Activate a semester before creating events.
+                {% endif %}
+            </p>
         </div>
     </div>
 
@@ -85,12 +92,28 @@ Events
                     {% if request.args.get('delete_error') == 'invalid' %}
                     <div class="alert alert-danger">Invalid admin credentials. Event was not deleted.</div>
                     {% endif %}
+                    <form method="get" action="{{ url_for('events.events_list') }}" class="row g-2 align-items-end mb-3">
+                        <div class="col">
+                            <label class="form-label" for="eventSemesterFilter">Show events for</label>
+                            <select class="form-select" id="eventSemesterFilter" name="semester_id">
+                                {% for semester in semesters %}
+                                <option value="{{ semester.id }}" {% if selected_semester and semester.id == selected_semester.id %}selected{% endif %}>
+                                    A.Y. {{ semester.academic_year }} · {{ semester.semester }}{% if semester.is_active %} (Active){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <button type="submit" class="btn btn-outline-primary">Filter</button>
+                        </div>
+                    </form>
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead>
                                 <tr>
                                     <th>Date</th>
                                     <th>Name</th>
+                                    <th>Semester</th>
                                     <th>Absent Fine</th>
                                     <th>Late Fine</th>
                                     <th>Actions</th>
@@ -101,6 +124,7 @@ Events
                                 <tr class="event-row" data-event-id="{{ ev.id }}" data-event-name="{{ ev.name }}" data-event-date="{{ ev.date }}" data-event-login="{{ ev.login_time or '' }}" data-event-logout="{{ ev.logout_time or '' }}" data-event-login-cutoff="{{ ev.login_cutoff_time or '' }}" data-event-logout-cutoff="{{ ev.logout_cutoff_time or '' }}" data-event-grace="{{ ev.grace_period or 0 }}" data-event-absent="{{ ev.absent_fine or '0.00' }}" data-event-late="{{ ev.late_fine or '0.00' }}">
                                     <td>{{ ev.date }}</td>
                                     <td>{{ ev.name }}</td>
+                                    <td>{{ ev.academic_year }} · {{ ev.semester_name }}</td>
                                     <td>₱{{ ev.absent_fine or '0.00' }}</td>
                                     <td>₱{{ ev.late_fine or '0.00' }}</td>
                                     <td class="text-end">
@@ -113,7 +137,13 @@ Events
                                     </td>
                                 </tr>
                                 {% else %}
-                                <tr><td colspan="5" class="text-muted">No events yet</td></tr>
+                                <tr><td colspan="6" class="text-muted">
+                                    {% if selected_semester %}
+                                    No events found for {{ selected_semester.academic_year }} · {{ selected_semester.semester }}.
+                                    {% else %}
+                                    No semesters are available. Create a semester before managing events.
+                                    {% endif %}
+                                </td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -130,6 +160,7 @@ Events
                                 <form id="editEventForm" method="post" action="">
                                     <div class="modal-body">
                                         <input type="hidden" name="event_id" id="editEventId" />
+                                        <input type="hidden" name="return_semester_id" value="{{ selected_semester_id }}" />
                                         <div class="row">
                                             <div class="col-md-6 mb-3">
                                                 <label class="form-label">Event Name</label>
@@ -368,6 +399,7 @@ Events
                                 </div>
                                 <form id="deleteEventForm" method="post" action="">
                                     <div class="modal-body">
+                                        <input type="hidden" name="return_semester_id" value="{{ selected_semester_id }}" />
                                         <p class="text-danger">To delete this event and all associated attendance and fines, please re-enter your admin credentials.</p>
                                         <div id="deleteEventErrorPlaceholder"></div>
                                         <div class="mb-3">

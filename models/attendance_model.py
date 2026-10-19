@@ -16,11 +16,13 @@ def ensure_attendance_table():
 		CREATE TABLE IF NOT EXISTS attendance (
 			id INT AUTO_INCREMENT PRIMARY KEY,
 			event_id INT NOT NULL,
+			semester_id INT NULL,
 			student_id INT NOT NULL,
 			status VARCHAR(32) NOT NULL,
 			timestamp DATETIME NOT NULL,
 			INDEX (event_id),
-			INDEX (student_id)
+			INDEX (student_id),
+			INDEX idx_attendance_semester (semester_id)
 		)
 		"""
 	)
@@ -36,10 +38,12 @@ def record_attendance(event_id, student_id, status, timestamp):
 	cursor = conn.cursor()
 	cursor.execute(
 		"""
-		INSERT INTO attendance (event_id, student_id, status, timestamp)
-		VALUES (%s,%s,%s,%s)
+		INSERT INTO attendance (event_id, semester_id, student_id, status, timestamp)
+		SELECT event_id, semester_id, %s, %s, %s
+		FROM events
+		WHERE event_id=%s
 		""",
-		(event_id, student_id, status, timestamp)
+		(student_id, status, timestamp, event_id)
 	)
 	conn.commit()
 	conn.close()

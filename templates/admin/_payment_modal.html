@@ -40,21 +40,13 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="academicYear" class="form-label">Academic Year</label>
-                        <select id="academicYear" class="form-select" required>
-                            <option value="">Select Year</option>
-                            {% for year in academic_years %}
-                            <option value="{{ year }}">{{ year }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="semester" class="form-label">Semester</label>
-                        <select id="semester" class="form-select" required>
+                        <label for="semesterId" class="form-label">Semester</label>
+                        <select id="semesterId" class="form-select" required onchange="updateAmountField()">
                             <option value="">Select Semester</option>
-                            {% for sem in semesters %}
-                            <option value="{{ sem }}">{{ sem }}</option>
+                            {% for term in terms %}
+                            <option value="{{ term.id }}" data-academic-year="{{ term.academic_year }}" data-semester="{{ term.semester }}">
+                                {{ term.academic_year }} · {{ term.semester }}
+                            </option>
                             {% endfor %}
                         </select>
                     </div>

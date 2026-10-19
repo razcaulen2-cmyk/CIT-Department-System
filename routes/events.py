@@ -1,8 +1,8 @@
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, current_app
-from models import event_model, attendance_model, student_model
+from flask import Blueprint, flash, render_template, request, redirect, url_for, jsonify, current_app
+from models import event_model, attendance_model, semester_model, student_model
 from config import get_db_connection
 from werkzeug.security import check_password_hash
-from datetime import datetime, date, timedelta, time
+from datetime import datetime, timedelta, time
 from .admin import require_admin
 
 events_bp = Blueprint(
@@ -19,8 +19,51 @@ def parse_time(value):
 @events_bp.route('/events', methods=['GET'])
 @require_admin
 def events_list():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        """
+        SELECT id, academic_year, semester, fund_amount, is_active
+        FROM school_terms
+        ORDER BY academic_year DESC,
+                 CASE semester
+                     WHEN '1st Semester' THEN 1
+                     WHEN '2nd Semester' THEN 2
+                     ELSE 3
+                 END,
+                 semester
+        """
+    )
+    semesters = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    active_semester = next(
+        (semester for semester in semesters if semester['is_active']),
+        None,
+    )
+    requested_semester_id = request.args.get('semester_id', type=int)
+    selected_semester = next(
+        (semester for semester in semesters if semester['id'] == requested_semester_id),
+        active_semester,
+    )
     events = event_model.get_all_events()
-    return render_template('admin/events.html', events=events)
+    if selected_semester:
+        events = [
+            event for event in events
+            if event.get('semester_id') == selected_semester['id']
+        ]
+    else:
+        events = []
+
+    return render_template(
+        'admin/events.html',
+        events=events,
+        active_semester=active_semester,
+        semesters=semesters,
+        selected_semester=selected_semester,
+        selected_semester_id=selected_semester['id'] if selected_semester else '',
+    )
 
 
 @events_bp.route('/events/<int:event_id>/exemptions', methods=['GET', 'POST'])
@@ -47,7 +90,11 @@ def event_exemptions(event_id):
         event_model.sync_fines_for_event(event)
         return jsonify({'success': True, 'count': len(resolved_ids)})
 
-    students = student_model.get_all_students()
+    enrolled_student_ids = semester_model.get_semester_student_ids(event.get('semester_id'))
+    students = [
+        student for student in student_model.get_all_students()
+        if student.get('id') in enrolled_student_ids
+    ]
     for student in students:
         student['display_name'] = f"{student.get('lastname', '')}, {student.get('firstname', '')}".strip(', ')
     exempted_student_ids = event_model.get_event_exemption_ids(event_id)
@@ -139,18 +186,21 @@ def create_event():
         if logout_dt:
             logout_cutoff_time = (logout_dt + timedelta(minutes=grace_period)).strftime("%H:%M")
 
-    event_model.add_event(
-        name,
-        date,
-        login_time,
-        logout_time,
-        login_cutoff_time,
-        logout_cutoff_time,
-        absent_fine,
-        late_fine,
-        grace_period,
-        is_active,
-    )
+    try:
+        event_model.add_event(
+            name,
+            date,
+            login_time,
+            logout_time,
+            login_cutoff_time,
+            logout_cutoff_time,
+            absent_fine,
+            late_fine,
+            grace_period,
+            is_active,
+        )
+    except ValueError as error:
+        flash(str(error), 'danger')
 
     return redirect(url_for('events.events_list'))
 
@@ -192,7 +242,10 @@ def edit_event(event_id):
         grace_period,
     )
 
-    return redirect(url_for('events.events_list'))
+    return redirect(url_for(
+        'events.events_list',
+        semester_id=request.form.get('return_semester_id') or None,
+    ))
 
 
 @events_bp.route('/events/<int:event_id>/delete', methods=['POST'])
@@ -209,10 +262,17 @@ def delete_event(event_id):
     conn.close()
 
     if not admin or not check_password_hash(admin.get('password', ''), password):
-        return redirect(url_for('events.events_list', delete_error='invalid'))
+        return redirect(url_for(
+            'events.events_list',
+            semester_id=request.form.get('return_semester_id') or None,
+            delete_error='invalid',
+        ))
 
     event_model.delete_event(event_id)
-    return redirect(url_for('events.events_list'))
+    return redirect(url_for(
+        'events.events_list',
+        semester_id=request.form.get('return_semester_id') or None,
+    ))
 
 
 def format_time_value(time_value):
@@ -273,23 +333,9 @@ def conduct_event(event_id):
     return render_template('admin/conduct_attendance.html', event=event)
 
 
-def format_academic_year(date_value):
-    if isinstance(date_value, str):
-        try:
-            date_value = datetime.strptime(date_value, "%Y-%m-%d").date()
-        except Exception:
-            return None
-    if isinstance(date_value, datetime):
-        date_value = date_value.date()
-    if not isinstance(date_value, date):
-        return None
-
-    if date_value.month >= 7:
-        return f"{date_value.year}-{date_value.year + 1}"
-    return f"{date_value.year - 1}-{date_value.year}"
-
-
 def build_attendance_rows(event, students, course=None, year_level=None):
+    enrolled_student_ids = semester_model.get_semester_student_ids(event.get('semester_id'))
+    students = [student for student in students if student.get('id') in enrolled_student_ids]
     attendance_records = attendance_model.get_attendance_by_event(event['id'])
     exempted_student_ids = event_model.get_event_exemption_ids(event['id'])
     paper_attendance = event_model.get_paper_attendance_for_event(event['id'])
@@ -361,17 +407,47 @@ def build_attendance_rows(event, students, course=None, year_level=None):
 @events_bp.route('/attendance', methods=['GET'])
 @require_admin
 def attendance_page():
-    academic_year = request.args.get('academic_year')
+    academic_year = request.args.get('academic_year', '').strip()
+    semester = request.args.get('semester', '').strip()
 
     students = student_model.get_all_students()
     events = event_model.get_all_events()
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        """
+        SELECT academic_year, semester
+        FROM school_terms
+        ORDER BY academic_year DESC,
+                 CASE semester
+                     WHEN '1st Semester' THEN 1
+                     WHEN '2nd Semester' THEN 2
+                     ELSE 3
+                 END,
+                 semester
+        """
+    )
+    terms = cursor.fetchall()
+    cursor.close()
+    conn.close()
 
     # derive distinct course list and year levels from students
     courses = sorted({s['course'] for s in students if s.get('course')})
     year_levels = sorted({s['year_level'] for s in students if s.get('year_level')})
 
-    academic_years = sorted({format_academic_year(ev['date']) for ev in events if format_academic_year(ev['date'])}, reverse=True)
-    filtered_events = [ev for ev in events if not academic_year or format_academic_year(ev['date']) == academic_year]
+    academic_years = sorted({term['academic_year'] for term in terms}, reverse=True)
+    available_semesters = {
+        term['semester'] for term in terms if term['academic_year'] == academic_year
+    }
+    if semester not in available_semesters:
+        semester = ''
+
+    filtered_events = [
+        event for event in events
+        if (not academic_year or event.get('academic_year') == academic_year)
+        and (not semester or event.get('semester_name') == semester)
+    ]
 
     return render_template(
         'admin/attendance.html',
@@ -380,6 +456,8 @@ def attendance_page():
         events=filtered_events,
         academic_years=academic_years,
         selected_academic_year=academic_year,
+        terms=terms,
+        selected_semester=semester,
     )
 
 
@@ -420,6 +498,8 @@ def update_paper_attendance(event_id):
     student = student_model.get_student(student_id)
     if not student:
         return jsonify({'success': False, 'message': 'Student not found'}), 404
+    if not semester_model.is_student_enrolled_in_semester(event.get('semester_id'), student_id):
+        return jsonify({'success': False, 'message': 'Student is not currently enrolled in this event semester.'}), 409
 
     status = (data.get('status') or '').lower()
     try:
@@ -586,6 +666,11 @@ def record_rfid():
     student = student_model.get_student_by_rfid(rfid_uid)
     if not student:
         return jsonify({'success': False, 'message': 'RFID not registered'}), 404
+    if not semester_model.is_student_enrolled_in_semester(event.get('semester_id'), student['id']):
+        return jsonify({
+            'success': False,
+            'message': 'Student is not enrolled in this event semester.',
+        }), 403
 
     now = datetime.now()
     event_date = event.get('date')

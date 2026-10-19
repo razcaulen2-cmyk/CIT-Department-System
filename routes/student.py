@@ -2,7 +2,7 @@ import mysql.connector
 from flask import Blueprint, jsonify, redirect, render_template, session
 
 from config import get_db_connection
-from models import attendance_model, event_model, student_model
+from models import attendance_model, event_model, semester_model, student_model
 
 student_bp = Blueprint("student", __name__)
 
@@ -79,8 +79,11 @@ def student_attendance():
 
     exempted_event_ids = event_model.get_exempted_event_ids_for_student(student["id"])
     paper_attendance = event_model.get_paper_attendance_for_student(student["id"])
+    enrolled_semester_ids = semester_model.get_student_semester_ids(student["id"])
     history = []
     for event in event_model.get_all_events():
+        if event.get("semester_id") not in enrolled_semester_ids:
+            continue
         records = records_by_event.get(event["id"], [])
         statuses = {record["status"] for record in records}
         has_login_window = bool(event.get("login_time") or event.get("login_cutoff_time"))

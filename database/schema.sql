@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS school_terms (
     semester VARCHAR(20) NOT NULL,
     start_date DATE NULL,
     end_date DATE NULL,
+    fund_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE KEY uq_school_term (academic_year, semester)
 ) ENGINE=InnoDB;
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
 
 CREATE TABLE IF NOT EXISTS events (
     event_id INT AUTO_INCREMENT PRIMARY KEY,
+    semester_id INT NULL,
     event_name VARCHAR(150) NOT NULL,
     event_date DATE NOT NULL,
     login_time TIME NULL,
@@ -51,22 +53,29 @@ CREATE TABLE IF NOT EXISTS events (
     absent_fine DECIMAL(10, 2) NOT NULL DEFAULT 0,
     late_fine DECIMAL(10, 2) NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_events_date (event_date)
+    INDEX idx_events_date (event_date),
+    INDEX idx_events_semester (semester_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS student_funds (
     id INT AUTO_INCREMENT PRIMARY KEY,
     student_id VARCHAR(32) NOT NULL,
+    semester_id INT NULL,
     fund_id INT NULL,
     amount_due DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    assessed_amount DECIMAL(10, 2) NULL,
+    paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    is_semester_fund BOOLEAN NOT NULL DEFAULT FALSE,
     description VARCHAR(255) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_student_funds_student (student_id)
+    INDEX idx_student_funds_student (student_id),
+    INDEX idx_student_funds_semester (semester_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS fines (
     fine_id INT AUTO_INCREMENT PRIMARY KEY,
     student_id VARCHAR(32) NOT NULL,
+    semester_id INT NULL,
     event_id INT NULL,
     fine_type VARCHAR(50) NULL,
     amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -74,22 +83,38 @@ CREATE TABLE IF NOT EXISTS fines (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_fine (student_id, event_id, fine_type),
     INDEX idx_fines_student (student_id),
-    INDEX idx_fines_event (event_id)
+    INDEX idx_fines_event (event_id),
+    INDEX idx_fines_semester (semester_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS attendance (
     id INT AUTO_INCREMENT PRIMARY KEY,
     event_id INT NOT NULL,
+    semester_id INT NULL,
     student_id INT NOT NULL,
     status VARCHAR(32) NOT NULL,
     timestamp DATETIME NOT NULL,
     INDEX idx_attendance_event (event_id),
-    INDEX idx_attendance_student (student_id)
+    INDEX idx_attendance_student (student_id),
+    INDEX idx_attendance_semester (semester_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS semester_enrollments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    semester_id INT NOT NULL,
+    student_id INT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'enrolled',
+    enrolled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    dropped_at TIMESTAMP NULL,
+    UNIQUE KEY uq_semester_enrollment (semester_id, student_id),
+    INDEX idx_semester_enrollments_student (student_id),
+    INDEX idx_semester_enrollments_status (semester_id, status)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     student_id VARCHAR(32) NOT NULL,
+    semester_id INT NULL,
     transaction_type VARCHAR(30) NOT NULL,
     payment_type VARCHAR(30) NOT NULL,
     amount DECIMAL(10, 2) NOT NULL,
@@ -98,7 +123,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_by VARCHAR(80) NOT NULL,
     transaction_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_transactions_student (student_id),
-    INDEX idx_transactions_date (transaction_date)
+    INDEX idx_transactions_date (transaction_date),
+    INDEX idx_transactions_semester (semester_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS transaction_balance_snapshots (
@@ -143,9 +169,11 @@ CREATE TABLE IF NOT EXISTS event_exemptions (
 
 CREATE TABLE IF NOT EXISTS paper_attendance (
     event_id INT NOT NULL,
+    semester_id INT NULL,
     student_id INT NOT NULL,
     status VARCHAR(16) NOT NULL,
     recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (event_id, student_id),
-    INDEX idx_paper_attendance_student (student_id)
+    INDEX idx_paper_attendance_student (student_id),
+    INDEX idx_paper_attendance_semester (semester_id)
 ) ENGINE=InnoDB;
