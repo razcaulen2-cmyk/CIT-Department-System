@@ -1325,6 +1325,22 @@ def transaction_report():
         cursor.execute(query, params)
         transactions = cursor.fetchall()
 
+        semester_labels = set()
+        for transaction in transactions:
+            academic_year = (transaction["academic_year"] or "").strip()
+            semester = (transaction["semester"] or "").strip()
+            if academic_year and semester:
+                semester_labels.add(f"{academic_year} · {semester}")
+            else:
+                semester_labels.add("Semester not recorded")
+
+        if len(semester_labels) == 1:
+            semester_label = next(iter(semester_labels))
+        elif semester_labels:
+            semester_label = "Multiple Semesters"
+        else:
+            semester_label = "No transactions"
+
         totals = {"Funds": Decimal("0.00"), "Fines": Decimal("0.00")}
         for transaction in transactions:
             transaction_type = transaction["transaction_type"]
@@ -1335,6 +1351,7 @@ def transaction_report():
             "admin/transaction_report.html",
             transactions=transactions,
             period_label=period_label,
+            semester_label=semester_label,
             generated_at=report_clock["generated_at"],
             transaction_count=len(transactions),
             total_amount=sum(totals.values(), Decimal("0.00")),

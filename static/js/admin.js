@@ -68,6 +68,17 @@ let refreshAfterPrint = false;
 let transactionToDelete = null;
 let selectedThermalPrinter = '';
 
+function printReport(reportType) {
+    const cleanup = () => {
+        delete document.body.dataset.printReport;
+        window.removeEventListener('afterprint', cleanup);
+    };
+
+    document.body.dataset.printReport = reportType;
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const studentTapModalElement = document.getElementById('studentTapModal');
     const paymentModalElement = document.getElementById('paymentModal');
@@ -159,7 +170,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         printTransactionReportButton.addEventListener('click', () => {
             if (!transactionReportPreview.childElementCount) return;
-            window.print();
+            printReport('transaction');
         });
     }
     if (transactionReportModalElement) {
@@ -203,7 +214,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         printBalanceReportButton.addEventListener('click', () => {
             if (!balanceReportPreview.childElementCount) return;
-            window.print();
+            printReport('balance');
         });
     }
     if (balanceReportModalElement) {
