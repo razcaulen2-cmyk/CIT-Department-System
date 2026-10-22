@@ -122,6 +122,82 @@ CRISHA MAE ABOGADA ABIADO,1,BSCS,250.00</pre>
             </div>
         </aside>
     </div>
+
+    <section class="card card-panel csv-database-section">
+        <div class="csv-import-card-heading">
+            <span class="csv-import-icon"><i class="bi bi-database" aria-hidden="true"></i></span>
+            <div>
+                <span class="eyebrow">DATA PROTECTION</span>
+                <h2>Database backup and restore</h2>
+                <p>Create a portable copy of your data or restore the system from a saved backup.</p>
+            </div>
+        </div>
+
+        {% if backup_filename %}
+        <div class="csv-database-saved">
+            <span class="csv-database-saved-icon"><i class="bi bi-shield-check" aria-hidden="true"></i></span>
+            <span class="csv-database-saved-copy">
+                <strong>Latest backup available</strong>
+                <span>{{ backup_filename }}</span>
+            </span>
+            <a class="btn btn-sm btn-outline-warning rounded-pill" href="{{ url_for('admin.download_saved_database_backup', filename=backup_filename) }}">
+                <i class="bi bi-download" aria-hidden="true"></i> Download
+            </a>
+        </div>
+        {% endif %}
+
+        <div class="csv-database-grid">
+            <article class="csv-database-card">
+                <div class="csv-database-card-heading">
+                    <span class="csv-database-card-icon"><i class="bi bi-cloud-arrow-down" aria-hidden="true"></i></span>
+                    <div>
+                        <h3>Back up your data</h3>
+                        <p>Save the complete database—including its schema and records—as a MySQL file.</p>
+                    </div>
+                </div>
+                <form method="get" action="{{ url_for('admin.download_database_backup') }}">
+                    <button type="submit" class="btn btn-dark rounded-pill csv-database-action">
+                        <i class="bi bi-download" aria-hidden="true"></i>
+                        Backup Database
+                    </button>
+                </form>
+                <p class="csv-database-footnote"><i class="bi bi-hdd" aria-hidden="true"></i> A copy is also kept in the server’s backup folder.</p>
+            </article>
+
+            <article class="csv-database-card csv-database-restore">
+                <div class="csv-database-card-heading">
+                    <span class="csv-database-card-icon"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></span>
+                    <div>
+                        <h3>Restore from a backup</h3>
+                        <p>Return the live database to the contents of a previously saved MySQL backup.</p>
+                    </div>
+                </div>
+
+                <div class="csv-database-warning">
+                    <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+                    <p><strong>This replaces current data.</strong> Changes made after the selected backup will not be in the restored database. The system first saves a safety backup of the current database.</p>
+                </div>
+                <p class="csv-database-footnote"><i class="bi bi-people" aria-hidden="true"></i> Restore only when other users are not using the system.</p>
+
+                <form method="post" action="{{ url_for('admin.restore_database') }}" enctype="multipart/form-data" class="csv-database-restore-form">
+                    <input type="hidden" name="csrf_token" value="{{ database_restore_csrf }}">
+                    <div class="csv-database-form-field">
+                        <label for="databaseBackupFile" class="form-label">MySQL backup file</label>
+                        <input class="form-control csv-import-file" type="file" id="databaseBackupFile" name="backup_file" accept=".sql" required>
+                    </div>
+                    <div class="csv-database-form-field">
+                        <label for="restoreConfirmation" class="form-label">Type <strong>RESTORE</strong> to confirm</label>
+                        <input class="form-control" type="text" id="restoreConfirmation" name="confirmation"
+                               pattern="RESTORE" autocomplete="off" placeholder="RESTORE" required>
+                    </div>
+                    <button type="submit" class="btn btn-outline-warning rounded-pill csv-database-action">
+                        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
+                        Restore Database
+                    </button>
+                </form>
+            </article>
+        </div>
+    </section>
 </div>
 
 {% endblock %}
