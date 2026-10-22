@@ -672,28 +672,18 @@ Funds & Fines
         margin: 12mm;
     }
 
-    body * {
-        visibility: hidden !important;
-    }
-
+    body[data-print-report="balance"],
+    body[data-print-report="balance"] .wrapper,
+    body[data-print-report="balance"] .main,
+    body[data-print-report="balance"] .content,
     #generateBalanceReportModal,
-    #generateBalanceReportModal * {
-        visibility: visible !important;
-    }
-
-    #generateBalanceReportModal {
-        position: absolute !important;
-        inset: 0 auto auto 0 !important;
-        display: block !important;
-        height: auto !important;
-        overflow: visible !important;
-    }
-
     #generateBalanceReportModal .modal-dialog,
     #generateBalanceReportModal .modal-content,
     #generateBalanceReportModal .modal-body {
+        display: block !important;
         width: 100% !important;
         max-width: none !important;
+        min-height: 0 !important;
         max-height: none !important;
         height: auto !important;
         margin: 0 !important;
@@ -704,6 +694,19 @@ Funds & Fines
         color: #111 !important;
         box-shadow: none !important;
         overflow: visible !important;
+    }
+
+    body[data-print-report="balance"] .sidebar,
+    body[data-print-report="balance"] .topbar,
+    body[data-print-report="balance"] .content > *:not(#generateBalanceReportModal) {
+        display: none !important;
+    }
+
+    #generateBalanceReportModal {
+        position: static !important;
+        inset: auto !important;
+        opacity: 1 !important;
+        transform: none !important;
     }
 
     #generateBalanceReportModal .modal-header,
@@ -741,9 +744,6 @@ Funds & Fines
         display: table-header-group;
     }
 
-    .balance-report-table tr {
-        break-inside: avoid;
-    }
 }
 </style>
 

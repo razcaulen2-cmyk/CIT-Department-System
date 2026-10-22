@@ -486,37 +486,88 @@ document.addEventListener('DOMContentLoaded', function () {
     color: var(--text-muted);
 }
 
-.transaction-report-summary {
+.transaction-report-header {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 20px;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
 }
 
-.transaction-report-summary-card {
-    min-width: 0;
-    padding: 14px 16px;
-    border: 1px solid rgba(212, 175, 55, 0.2);
-    border-radius: 12px;
-    background: rgba(212, 175, 55, 0.05);
-}
-
-.transaction-report-summary-label {
-    display: block;
-    margin-bottom: 8px;
-    color: var(--text-muted);
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.transaction-report-summary-value {
-    display: block;
+.transaction-report-term-heading {
     color: var(--text);
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     font-weight: 700;
-    overflow-wrap: anywhere;
+    text-align: center;
+}
+
+.transaction-report-generated {
+    justify-self: end;
+    text-align: right;
+}
+
+.transaction-report-totals {
+    width: min(100%, 420px);
+    margin: 20px 0 0 auto;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 12px;
+}
+
+.transaction-report-totals-title {
+    color: var(--text);
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+}
+
+.transaction-report-totals table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.transaction-report-totals th,
+.transaction-report-totals td {
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.transaction-report-totals th {
+    font-weight: 500;
+    text-align: left;
+}
+
+.transaction-report-totals td {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.transaction-report-grand-total th,
+.transaction-report-grand-total td {
+    border-top: 1px solid var(--line);
+    font-weight: 700;
+}
+
+.transaction-report-signatures {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 48px;
+    margin: 52px 24px 12px;
+}
+
+.transaction-report-signature {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--text);
+    font-size: 0.82rem;
+}
+
+.transaction-report-signature-line {
+    display: block;
+    width: 100%;
+    border-top: 1px solid currentColor;
 }
 
 .transaction-report-table-wrap {
@@ -672,8 +723,21 @@ document.addEventListener('DOMContentLoaded', function () {
         width: 100%;
     }
 
-    .transaction-report-summary {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .transaction-report-header {
+        grid-template-columns: 1fr;
+        justify-items: center;
+        text-align: center;
+    }
+
+    .transaction-report-generated {
+        justify-self: center;
+        text-align: center;
+    }
+
+    .transaction-report-signatures {
+        gap: 24px;
+        margin-right: 0;
+        margin-left: 0;
     }
 }
 
@@ -683,24 +747,21 @@ document.addEventListener('DOMContentLoaded', function () {
         margin: 12mm;
     }
 
-    body * {
-        visibility: hidden !important;
-    }
-
-    #generateTransactionReportModal,
-    #generateTransactionReportModal * {
-        visibility: visible !important;
-    }
-
-    body,
+    body[data-print-report="transaction"],
+    body[data-print-report="transaction"] .wrapper,
+    body[data-print-report="transaction"] .main,
+    body[data-print-report="transaction"] .content,
     #generateTransactionReportModal,
     #generateTransactionReportModal .modal-dialog,
     #generateTransactionReportModal .modal-content,
     #generateTransactionReportModal .modal-body {
+        display: block !important;
         margin: 0 !important;
         padding: 0 !important;
         width: 100% !important;
         max-width: none !important;
+        min-height: 0 !important;
+        height: auto !important;
         border: 0 !important;
         border-radius: 0 !important;
         background: #fff !important;
@@ -709,12 +770,17 @@ document.addEventListener('DOMContentLoaded', function () {
         overflow: visible !important;
     }
 
+    body[data-print-report="transaction"] .sidebar,
+    body[data-print-report="transaction"] .topbar,
+    body[data-print-report="transaction"] .content > *:not(#generateTransactionReportModal) {
+        display: none !important;
+    }
+
     #generateTransactionReportModal {
-        position: absolute !important;
-        inset: 0 auto auto 0 !important;
-        display: block !important;
-        height: auto !important;
-        overflow: visible !important;
+        position: static !important;
+        inset: auto !important;
+        opacity: 1 !important;
+        transform: none !important;
     }
 
     #generateTransactionReportModal .modal-dialog-scrollable,
@@ -737,14 +803,19 @@ document.addEventListener('DOMContentLoaded', function () {
         color: #111 !important;
     }
 
-    .transaction-report-summary-card,
+    .transaction-report-totals th,
+    .transaction-report-totals td,
     .transaction-report-table th,
     .transaction-report-table td {
         background: #fff !important;
         border-color: #ccc !important;
     }
 
-    .transaction-report-summary-label,
+    .transaction-report-totals-title,
+    .transaction-report-totals th,
+    .transaction-report-totals td,
+    .transaction-report-signature,
+    .transaction-report-term-heading,
     .transaction-report-empty,
     .report-period {
         color: #555 !important;
@@ -752,10 +823,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     .transaction-report-table thead {
         display: table-header-group;
-    }
-
-    .transaction-report-table tr {
-        break-inside: avoid;
     }
 
     .transaction-report-table {

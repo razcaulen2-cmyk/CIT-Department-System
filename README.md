@@ -8,6 +8,16 @@ A department fines and funds tracker for the CIT department
 
 The schema creates an empty database. Add an administrator and application data through your normal setup process; no demo or production records are included.
 
+### Start automatically on Windows
+
+On the office computer, set up the project, its `.env` file, database, and `venv` first. Then run this from the project folder in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1
+```
+
+This adds a shortcut to the current Windows user's Startup folder. The tracker starts when that user signs in, and is available on that computer at `http://127.0.0.1:5000`. To remove the shortcut, run `powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1 -Uninstall`. This is a per-user startup setting; it does not start before sign-in or make the tracker accessible to other devices on the network.
+
 ### Existing database: semester enrollment migration
 
 Before deploying the semester-based backend changes, take and verify a full database backup, then ensure exactly one semester is marked active. Run `.\\venv\\Scripts\\python.exe tools\\migrate_semester_schema.py --dry-run` to inspect the target database, followed by `.\\venv\\Scripts\\python.exe tools\\migrate_semester_schema.py` to create and verify table-level safety copies and apply the idempotent schema migration. The migration supports the legacy `school_terms.term_id` primary key and stops if there is not exactly one active semester. It adds semester links and enrollment records for all existing students in the active semester. It links existing events, attendance, funds, fines, and transactions to their semester; it deliberately does not create additional fund charges for those existing students.
