@@ -235,6 +235,9 @@ Funds & Fines
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-dark me-auto" id="proceedFinanceTransaction" disabled>
+                    Proceed Transaction
+                </button>
                 <button type="button" class="btn btn-outline-dark" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -759,11 +762,17 @@ function openQrModal() {
     if (studentInfo) {
         studentInfo.style.display = 'none';
     }
+    scannedStudentBalance = null;
+    if (proceedFinanceTransactionButton) {
+        proceedFinanceTransactionButton.disabled = true;
+    }
     modal.show();
 }
 
 const studentIdInput = document.getElementById('studentIdInput');
 const qrModalElement = document.getElementById('qrModal');
+const proceedFinanceTransactionButton = document.getElementById('proceedFinanceTransaction');
+let scannedStudentBalance = null;
 let scanTimer = null;
 const SCAN_TIMEOUT_MS = 250;
 
@@ -787,6 +796,11 @@ if (studentIdInput) {
     });
 
     studentIdInput.addEventListener('input', function() {
+        scannedStudentBalance = null;
+        if (proceedFinanceTransactionButton) {
+            proceedFinanceTransactionButton.disabled = true;
+        }
+        document.getElementById('studentInfo').style.display = 'none';
         if (scanTimer) {
             clearTimeout(scanTimer);
         }
@@ -828,13 +842,30 @@ function fetchStudentBalance(studentId) {
 }
 
 function displayStudentInfo(data) {
+    scannedStudentBalance = data;
     document.getElementById('infoName').textContent = `${data.firstname} ${data.lastname}`;
     document.getElementById('infoCourse').textContent = data.course;
     document.getElementById('infoFunds').textContent = `PHP ${parseFloat(data.total_funds).toFixed(2)}`;
     document.getElementById('infoFines').textContent = `PHP ${parseFloat(data.total_fines).toFixed(2)}`;
     document.getElementById('infoTotal').textContent = `PHP ${parseFloat(data.total_balance).toFixed(2)}`;
     document.getElementById('studentInfo').style.display = 'block';
+    if (proceedFinanceTransactionButton) {
+        proceedFinanceTransactionButton.disabled = false;
+    }
 }
+
+proceedFinanceTransactionButton?.addEventListener('click', function() {
+    if (!scannedStudentBalance || !qrModalElement) {
+        alert('Scan a student ID before proceeding.');
+        return;
+    }
+
+    try {
+        openPaymentForStudent(scannedStudentBalance, qrModalElement);
+    } catch (error) {
+        alert('Unable to open the payment form: ' + error.message);
+    }
+});
 
 function selectStudent(studentId) {
     // Highlight the row and show details

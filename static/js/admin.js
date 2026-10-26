@@ -271,6 +271,27 @@ function openPaymentModal() {
     if (paymentModal) paymentModal.show();
 }
 
+function openPaymentForStudent(data, sourceModalElement) {
+    const paymentForm = document.getElementById('paymentForm');
+    const amountField = document.getElementById('amount');
+    const maxAmount = document.getElementById('maxAmount');
+    if (!paymentModal || !paymentForm || !amountField || !maxAmount) {
+        throw new Error('The payment form is unavailable.');
+    }
+
+    currentStudent = data;
+    balanceRequestVersion += 1;
+    paymentForm.reset();
+    amountField.disabled = false;
+    maxAmount.textContent = '';
+    setPaymentStudent(data);
+
+    sourceModalElement.addEventListener('hidden.bs.modal', function() {
+        paymentModal.show();
+    }, {once: true});
+    bootstrap.Modal.getOrCreateInstance(sourceModalElement).hide();
+}
+
 function setThermalPrinterStatus(message, isError = false) {
     const status = document.getElementById('thermalPrinterStatus');
     if (!status) return;
@@ -378,16 +399,7 @@ async function proceedAttendanceTransaction() {
             throw new Error(data.error || 'Unable to load student balance.');
         }
 
-        currentStudent = data;
-        document.getElementById('paymentForm').reset();
-        document.getElementById('amount').disabled = false;
-        document.getElementById('maxAmount').textContent = '';
-        setPaymentStudent(data);
-
-        attendanceModalElement.addEventListener('hidden.bs.modal', function() {
-            paymentModal.show();
-        }, {once: true});
-        bootstrap.Modal.getOrCreateInstance(attendanceModalElement).hide();
+        openPaymentForStudent(data, attendanceModalElement);
     } catch (error) {
         alert('Error: ' + error.message);
     } finally {
