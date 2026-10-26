@@ -75,6 +75,39 @@ class PaymentsSemesterFilterTests(unittest.TestCase):
         self.assertNotIn("t.semester_id=%s", self.connection.test_cursor.query)
         self.assertEqual(self.connection.test_cursor.params, ("2026-2027",))
 
+    def test_transactions_search_matches_transaction_details(self):
+        response = self.get_payments("/payments?search=Gabriel")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'id="transactionSearch"', response.data)
+        self.assertIn(b'value="Gabriel"', response.data)
+        self.assertIn("CONCAT(s.firstname, ' ', s.lastname) LIKE %s", self.connection.test_cursor.query)
+        self.assertIn("t.payment_type LIKE %s", self.connection.test_cursor.query)
+        self.assertIn("CAST(t.amount AS CHAR) LIKE %s", self.connection.test_cursor.query)
+        self.assertEqual(self.connection.test_cursor.params, ("%Gabriel%",) * 11)
+        self.assertLess(
+            self.connection.test_cursor.query.index("CONCAT(s.firstname"),
+            self.connection.test_cursor.query.index("LIMIT 50"),
+        )
+
+    def test_transactions_search_combines_with_existing_filters(self):
+        response = self.get_payments(
+            "/payments?search=Gabriel&academic_year=2026-2027&semester_id=12"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("t.academic_year=%s", self.connection.test_cursor.query)
+        self.assertIn("t.semester_id=%s", self.connection.test_cursor.query)
+        self.assertEqual(
+            self.connection.test_cursor.params,
+            ("%Gabriel%",) * 11 + (
+                "2026-2027",
+                12,
+                "2026-2027",
+                "2nd Semester",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

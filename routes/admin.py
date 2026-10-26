@@ -1197,6 +1197,7 @@ def payments():
     selected_semester_id = request.args.get("semester_id", "").strip()
     if not any(str(term["id"]) == selected_semester_id for term in available_terms):
         selected_semester_id = ""
+    transaction_search = request.args.get("search", "").strip()[:100]
 
     query = """
         SELECT 
@@ -1217,6 +1218,24 @@ def payments():
     """
     filters = []
     params = []
+    if transaction_search:
+        search_pattern = f"%{transaction_search}%"
+        filters.append("""
+            (
+                s.firstname LIKE %s
+                OR s.lastname LIKE %s
+                OR CONCAT(s.firstname, ' ', s.lastname) LIKE %s
+                OR CAST(t.student_id AS CHAR) LIKE %s
+                OR CAST(t.id AS CHAR) LIKE %s
+                OR t.transaction_type LIKE %s
+                OR t.payment_type LIKE %s
+                OR CAST(t.amount AS CHAR) LIKE %s
+                OR t.academic_year LIKE %s
+                OR t.semester LIKE %s
+                OR CAST(t.transaction_date AS CHAR) LIKE %s
+            )
+        """)
+        params.extend([search_pattern] * 11)
     if selected_academic_year:
         filters.append("t.academic_year=%s")
         params.append(selected_academic_year)
@@ -1259,6 +1278,7 @@ def payments():
         selected_academic_year=selected_academic_year,
         available_terms=available_terms,
         selected_semester_id=selected_semester_id,
+        transaction_search=transaction_search,
     )
 
 

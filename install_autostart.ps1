@@ -36,4 +36,15 @@ $shortcut.Description = 'Start the Department Fines Tracker when this user signs
 $shortcut.Save()
 
 Write-Host 'Startup configured. The tracker will start when this Windows user signs in.'
-Write-Host 'Open http://127.0.0.1:5000 on this computer to use it.'
+Write-Host 'On this computer, open http://127.0.0.1:5000.'
+$lanAddress = Get-NetIPConfiguration |
+    Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
+    ForEach-Object {
+        $_.IPv4Address |
+            Where-Object { $_.IPAddress -notlike '169.254.*' } |
+            Select-Object -ExpandProperty IPAddress
+    } |
+    Select-Object -First 1
+if ($lanAddress) {
+    Write-Host "On office computers, open http://${lanAddress}:5000."
+}

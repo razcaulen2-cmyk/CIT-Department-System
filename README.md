@@ -8,15 +8,27 @@ A department fines and funds tracker for the CIT department
 
 The schema creates an empty database. Add an administrator and application data through your normal setup process; no demo or production records are included.
 
-### Start automatically on Windows
+### Office LAN access on Windows
 
-On the office computer, set up the project, its `.env` file, database, and `venv` first. Then run this from the project folder in PowerShell:
+The application listens on all network interfaces on port `5000`. On the office desktop, set up the project, its `.env` file, database, and `venv` first. To start it automatically when the current Windows user signs in, run this from the project folder in PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1
 ```
 
-This adds a shortcut to the current Windows user's Startup folder. The tracker starts when that user signs in, and is available on that computer at `http://127.0.0.1:5000`. To remove the shortcut, run `powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1 -Uninstall`. This is a per-user startup setting; it does not start before sign-in or make the tracker accessible to other devices on the network.
+This adds a shortcut to the current Windows user's Startup folder. The tracker starts when that user signs in. On the desktop, open `http://127.0.0.1:5000`; from other office computers on the same LAN, open `http://<desktop-IPv4-address>:5000` (for example, `http://192.168.50.16:5000`). Run `ipconfig` on the desktop to find its current IPv4 address. Ask the network administrator to reserve that address for the desktop in DHCP so the office URL does not change.
+
+Windows Firewall may block connections from other computers. In an elevated PowerShell window on the desktop, allow TCP port 5000 only from the local subnet on a Domain or Private network profile:
+
+```powershell
+New-NetFirewallRule -DisplayName "CIT Department System (Office LAN)" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5000 -Profile Domain,Private -RemoteAddress LocalSubnet
+```
+
+Keep the desktop powered on and signed in while staff use the system. This HTTP setup is intended only for a trusted office LAN, not direct internet access. To remove the startup shortcut, run `powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1 -Uninstall`. Remove the firewall rule when office LAN access is no longer needed with `Remove-NetFirewallRule -DisplayName "CIT Department System (Office LAN)"`.
+
+### Running without internet
+
+Bootstrap, Bootstrap Icons (including their font files), and Chart.js are stored under `static/vendor`, so the application pages do not need public CDNs or an internet connection to load their UI. Keep the office desktop's Python environment and MySQL database installed locally; browsers on other office computers connect only to the desktop over the office LAN, and the application connects to MySQL on the desktop. Internet access is not required for normal operation after setup, but the desktop and client computers must remain connected to the same LAN.
 
 ### Existing database: semester enrollment migration
 

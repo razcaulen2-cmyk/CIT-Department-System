@@ -58,7 +58,12 @@ Payments & Transactions
 <div class="transactions-section">
     <h2>Recent Transactions</h2>
     <form method="get" action="{{ url_for('admin.payments') }}" class="row g-3 align-items-end mb-3" id="transactionSemesterFilterForm">
-        <div class="col-md-5">
+        <div class="col-md-3">
+            <label class="form-label" for="transactionSearch">Search transactions</label>
+            <input type="search" class="form-control transaction-search-input" name="search" id="transactionSearch"
+                   value="{{ transaction_search }}" placeholder="Name, student ID, type, amount...">
+        </div>
+        <div class="col-md-3">
             <label class="form-label" for="transactionAcademicYearFilter">Academic Year</label>
             <select class="form-select" name="academic_year" id="transactionAcademicYearFilter">
                 <option value="">All academic years</option>
@@ -67,7 +72,7 @@ Payments & Transactions
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-5">
+        <div class="col-md-3">
             <label class="form-label" for="transactionSemesterFilter">Semester</label>
             <select class="form-select" name="semester_id" id="transactionSemesterFilter" {% if not selected_academic_year %}disabled{% endif %}>
                 <option value="">All semesters</option>
@@ -76,7 +81,7 @@ Payments & Transactions
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-3">
             <button type="submit" class="btn btn-primary w-100">Filter</button>
         </div>
     </form>
@@ -140,7 +145,13 @@ Payments & Transactions
                     {% endfor %}
                 {% else %}
                 <tr>
-                    <td colspan="8" class="text-center text-muted">No transactions yet</td>
+                    <td colspan="8" class="text-center text-muted">
+                        {% if transaction_search or selected_academic_year or selected_semester_id %}
+                        No transactions match your filters.
+                        {% else %}
+                        No transactions yet.
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endif %}
             </tbody>
@@ -682,6 +693,15 @@ document.addEventListener('DOMContentLoaded', function () {
     border: 1px solid var(--line-soft);
     border-radius: 12px;
     padding: 10px 14px;
+    background: #141414;
+    color: var(--text);
+}
+
+.transaction-search-input {
+    height: 46px;
+    padding: 10px 14px;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
     background: #141414;
     color: var(--text);
 }
