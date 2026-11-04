@@ -1,3 +1,4 @@
+import json
 import unittest
 from decimal import Decimal
 from unittest.mock import patch
@@ -74,6 +75,91 @@ class SemesterEnrollmentTests(unittest.TestCase):
             cursor.queries[-1][1],
             (Decimal("60.00"), Decimal("120.00"), 91),
         )
+
+
+class UnallocatedFundTransactionTests(unittest.TestCase):
+    class ReconciliationCursor:
+        def __init__(self, fund_rows, transactions):
+            self.fund_rows = fund_rows
+            self.transactions = transactions
+            self.queries = []
+
+        def execute(self, query, params=None):
+            self.queries.append((query, params))
+
+        def fetchall(self):
+            query = self.queries[-1][0]
+            if "FROM student_funds" in query:
+                return self.fund_rows
+            if "FROM transactions t" in query:
+                return self.transactions
+            return []
+
+    def test_unallocated_transactions_reduce_fund_and_get_reversible_snapshots(self):
+        cursor = self.ReconciliationCursor(
+            [(91, Decimal("500.00"))],
+            [(101, Decimal("300.00")), (102, Decimal("200.00"))],
+        )
+
+        applied = semester_model.apply_unallocated_fund_transactions(
+            cursor,
+            2,
+            "0012",
+        )
+
+        fund_updates = [
+            params for query, params in cursor.queries
+            if "UPDATE student_funds" in query
+        ]
+        snapshot_updates = [
+            params for query, params in cursor.queries
+            if "UPDATE transaction_balance_snapshots" in query
+        ]
+        self.assertEqual(applied, Decimal("500.00"))
+        self.assertEqual(fund_updates, [
+            (Decimal("200.00"), Decimal("300.00"), 91, "0012"),
+            (Decimal("0.00"), Decimal("200.00"), 91, "0012"),
+        ])
+        self.assertEqual(
+            [json.loads(snapshot) for snapshot, _ in snapshot_updates],
+            [
+                [{"row_id": 91, "before": "500.00", "after": "200.00"}],
+                [{"row_id": 91, "before": "200.00", "after": "0.00"}],
+            ],
+        )
+
+    def test_reconciliation_can_be_limited_to_selected_transactions(self):
+        cursor = self.ReconciliationCursor(
+            [(91, Decimal("500.00"))],
+            [(101, Decimal("125.00"))],
+        )
+
+        applied = semester_model.apply_unallocated_fund_transactions(
+            cursor,
+            2,
+            "0012",
+            transaction_ids=[101],
+        )
+
+        transaction_query, params = next(
+            (query, params) for query, params in cursor.queries
+            if "FROM transactions t" in query
+        )
+        self.assertEqual(applied, Decimal("125.00"))
+        self.assertIn("t.id IN (%s)", transaction_query)
+        self.assertEqual(params, ("0012", 2, 101))
+
+    def test_no_outstanding_semester_fund_skips_unallocated_payments(self):
+        cursor = self.ReconciliationCursor([], [(101, Decimal("300.00"))])
+
+        applied = semester_model.apply_unallocated_fund_transactions(
+            cursor,
+            2,
+            "0012",
+        )
+
+        self.assertEqual(applied, Decimal("0.00"))
+        self.assertEqual(len(cursor.queries), 1)
 
 
 class EventSemesterEligibilityTests(unittest.TestCase):

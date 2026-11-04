@@ -539,74 +539,95 @@ def add_academic_term():
 @admin_bp.route("/edit-academic-term/<id>", methods=["GET", "POST"])
 @require_admin
 def edit_academic_term(id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-
     if request.method == "POST":
-        academic_year = request.form["academic_year"]
-        semester = request.form["semester"]
-        start_date = request.form.get("start_date", None)
-        end_date = request.form.get("end_date", None)
+        academic_year = request.form.get("academic_year", "").strip()
+        semester = request.form.get("semester", "").strip()
+        start_date = request.form.get("start_date") or None
+        end_date = request.form.get("end_date") or None
         try:
             raw_fund_amount = request.form.get("fund_amount")
-            if raw_fund_amount is None:
+            if not raw_fund_amount:
                 raise InvalidOperation
             fund_amount = Decimal(raw_fund_amount)
-            if not fund_amount.is_finite() or fund_amount < 0 or fund_amount > Decimal("99999999.99"):
+            if (
+                not fund_amount.is_finite()
+                or fund_amount < 0
+                or fund_amount > Decimal("99999999.99")
+            ):
                 raise InvalidOperation
             fund_amount = fund_amount.quantize(Decimal("0.01"))
-        except (InvalidOperation, ValueError):
-            conn.close()
-            flash("Enter a valid non-negative fund amount.", "danger")
+            if start_date:
+                date.fromisoformat(start_date)
+            if end_date:
+                date.fromisoformat(end_date)
+        except (InvalidOperation, TypeError, ValueError):
+            flash("Enter valid dates and a non-negative fund amount.", "danger")
             return redirect("/academic-terms")
-        is_active = request.form.get("is_active", False)
-        is_active = is_active == "on"
 
+        if (
+            not academic_year
+            or len(academic_year) > 20
+            or not semester
+            or len(semester) > 20
+        ):
+            flash("Enter a valid academic year and semester.", "danger")
+            return redirect("/academic-terms")
+        if start_date and end_date and start_date > end_date:
+            flash("The end date must not be before the start date.", "danger")
+            return redirect("/academic-terms")
+
+        is_active = request.form.get("is_active") == "on"
+        conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM school_terms WHERE id=%s", (id,))
-        if not cursor.fetchone():
+        try:
+            cursor.execute("SELECT id FROM school_terms WHERE id=%s", (id,))
+            if not cursor.fetchone():
+                flash("Semester not found.", "danger")
+                return redirect("/academic-terms")
+            cursor.execute(
+                """
+                SELECT id FROM school_terms
+                WHERE academic_year=%s AND semester=%s AND id<>%s
+                LIMIT 1
+                """,
+                (academic_year, semester, id),
+            )
+            if cursor.fetchone():
+                flash("That academic year and semester already exist.", "danger")
+                return redirect("/academic-terms")
+            if is_active:
+                cursor.execute("UPDATE school_terms SET is_active=FALSE")
+            cursor.execute(
+                """
+                UPDATE school_terms
+                SET academic_year=%s, semester=%s, start_date=%s, end_date=%s,
+                    fund_amount=%s, is_active=%s
+                WHERE id=%s
+                """,
+                (academic_year, semester, start_date, end_date, fund_amount, is_active, id),
+            )
+            cursor.execute(
+                """
+                UPDATE transactions
+                SET academic_year=%s, semester=%s
+                WHERE semester_id=%s
+                """,
+                (academic_year, semester, id),
+            )
+            semester_model.reprice_semester_funds(cursor, id, fund_amount)
+            conn.commit()
+        except mysql.connector.Error:
+            conn.rollback()
+            current_app.logger.exception("Failed to update academic term %s.", id)
+            flash(
+                "Unable to save the academic term. No changes were saved; "
+                "check the server log for details.",
+                "danger",
+            )
+        finally:
+            cursor.close()
             conn.close()
-            flash("Semester not found.", "danger")
-            return redirect("/academic-terms")
-        cursor.execute(
-            """
-            SELECT id FROM school_terms
-            WHERE academic_year=%s AND semester=%s AND id<>%s
-            LIMIT 1
-            """,
-            (academic_year, semester, id),
-        )
-        if cursor.fetchone():
-            conn.close()
-            flash("That academic year and semester already exist.", "danger")
-            return redirect("/academic-terms")
-        if is_active:
-            cursor.execute("UPDATE school_terms SET is_active=FALSE")
-        cursor.execute(
-            """
-            UPDATE school_terms
-            SET academic_year=%s, semester=%s, start_date=%s, end_date=%s,
-                fund_amount=%s, is_active=%s
-            WHERE id=%s
-            """,
-            (academic_year, semester, start_date, end_date, fund_amount, is_active, id),
-        )
-        cursor.execute(
-            """
-            UPDATE transactions
-            SET academic_year=%s, semester=%s
-            WHERE semester_id=%s
-            """,
-            (academic_year, semester, id),
-        )
-        semester_model.reprice_semester_funds(cursor, id, fund_amount)
-        conn.commit()
-        conn.close()
         return redirect("/academic-terms")
-
-    cursor.execute("SELECT * FROM school_terms WHERE id=%s", (id,))
-    term = cursor.fetchone()
-    conn.close()
 
     return redirect("/academic-terms")
 
@@ -714,15 +735,28 @@ def enroll_semester_student(semester_id, student_id):
         conn.close()
         flash("Semester not found.", "danger")
         return redirect("/academic-terms")
+    ensure_transaction_balance_snapshots(cursor)
     semester_model.enroll_student(
         cursor,
         semester_id,
         student_id,
         student_key[0] or str(student_id),
     )
+    applied_amount = semester_model.apply_unallocated_fund_transactions(
+        cursor,
+        semester_id,
+        student_key[0] or str(student_id),
+    )
     conn.commit()
     conn.close()
-    flash("Student enrolled. The semester fund has been added to their balance.", "success")
+    if applied_amount:
+        flash(
+            "Student enrolled. The semester fund has been added, and "
+            f"PHP {applied_amount:.2f} in earlier fund payments was applied.",
+            "success",
+        )
+    else:
+        flash("Student enrolled. The semester fund has been added to their balance.", "success")
     return redirect(f"/academic-terms/{semester_id}/students")
 
 
