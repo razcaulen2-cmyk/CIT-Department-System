@@ -5,7 +5,7 @@
 
 {% block content %}
 <div class="container-fluid">
-    <div class="page-header d-flex justify-content-between align-items-start gap-3 mb-4">
+    <div class="panel-intro mb-4 d-flex justify-content-between align-items-start">
         <div>
             <p class="eyebrow">ENROLLMENT</p>
             <h3 class="mb-2">{{ semester.academic_year }} · {{ semester.semester }}</h3>
@@ -16,6 +16,43 @@
         </div>
         <a href="/academic-terms" class="btn btn-outline-dark rounded-pill">Back to Semesters</a>
     </div>
+
+    <form method="get" class="row g-3 align-items-end mb-3" id="semesterStudentFilters">
+        <div class="col-md-4">
+            <label for="semesterStudentSearch" class="form-label">Search students</label>
+            <input type="search" class="form-control" id="semesterStudentSearch" name="search"
+                   value="{{ search }}" placeholder="Name or student ID">
+        </div>
+        <div class="col-md-3">
+            <label for="semesterStudentCourse" class="form-label">Course</label>
+            <select class="form-select" id="semesterStudentCourse" name="course">
+                <option value="">All courses</option>
+                {% for course in courses %}
+                <option value="{{ course }}" {% if course == selected_course %}selected{% endif %}>{{ course }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label for="semesterStudentYear" class="form-label">Year level</label>
+            <select class="form-select" id="semesterStudentYear" name="year_level">
+                <option value="">All years</option>
+                {% for year in year_levels %}
+                <option value="{{ year }}" {% if year|string == selected_year_level|string %}selected{% endif %}>
+                    Year {{ year }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary rounded-pill flex-grow-1">Filter</button>
+            {% if search or selected_course or selected_year_level %}
+            <a href="/academic-terms/{{ semester.id }}/students"
+               class="btn btn-outline-dark rounded-pill" aria-label="Clear filters" title="Clear filters">
+                <i class="bi bi-x-lg" aria-hidden="true"></i>
+            </a>
+            {% endif %}
+        </div>
+    </form>
 
     <div class="table-responsive">
         <table class="table table-hover align-middle">
@@ -61,7 +98,15 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="text-center text-muted py-4">No students are registered.</td></tr>
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-4">
+                        {% if search or selected_course or selected_year_level %}
+                        No students match the selected search and filters.
+                        {% else %}
+                        No students are registered.
+                        {% endif %}
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>

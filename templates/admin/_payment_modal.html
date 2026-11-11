@@ -18,25 +18,50 @@
                             <option value="">Select Type</option>
                             <option value="Funds">Funds</option>
                             <option value="Fines">Fines</option>
+                            <option value="Funds + Fines">Funds + Fines</option>
                         </select>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="paymentType" class="form-label">Payment Type</label>
-                        <select id="paymentType" class="form-select" required onchange="updateAmountField()">
-                            <option value="">Select Payment Type</option>
-                            <option value="Partial">Partial Payment</option>
-                            <option value="Full">Full Payment</option>
-                        </select>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="amount" class="form-label">Amount</label>
-                        <div class="input-group">
-                            <span class="input-group-text">PHP</span>
-                            <input type="number" id="amount" class="form-control" placeholder="0.00" step="0.01" required>
+                    <div id="singlePaymentFields">
+                        <div class="mb-3">
+                            <label for="paymentType" class="form-label">Payment Type</label>
+                            <select id="paymentType" class="form-select" onchange="updateAmountField()">
+                                <option value="">Select Payment Type</option>
+                                <option value="Partial">Partial Payment</option>
+                                <option value="Full">Full Payment</option>
+                            </select>
                         </div>
-                        <small id="maxAmount" class="text-muted"></small>
+
+                        <div class="mb-3">
+                            <label for="amount" class="form-label">Amount</label>
+                            <div class="input-group">
+                                <span class="input-group-text">PHP</span>
+                                <input type="number" id="amount" class="form-control" placeholder="0.00" step="0.01">
+                            </div>
+                            <small id="maxAmount" class="text-muted"></small>
+                        </div>
+                    </div>
+
+                    <div id="combinedPaymentFields" class="d-none">
+                        {% for account in [("Funds", "funds"), ("Fines", "fines")] %}
+                        <fieldset class="border rounded p-3 mb-3">
+                            <legend class="float-none w-auto px-2 fs-6 mb-1">{{ account[0] }} Payment</legend>
+                            <div class="mb-3">
+                                <label for="{{ account[1] }}PaymentType" class="form-label">{{ account[0] }} Payment Type</label>
+                                <select id="{{ account[1] }}PaymentType" class="form-select" onchange="updateAmountField()">
+                                    <option value="">Select Payment Type</option>
+                                    <option value="Partial">Partial Payment</option>
+                                    <option value="Full">Full Payment</option>
+                                </select>
+                            </div>
+                            <label for="{{ account[1] }}Amount" class="form-label">{{ account[0] }} Amount</label>
+                            <div class="input-group">
+                                <span class="input-group-text">PHP</span>
+                                <input type="number" id="{{ account[1] }}Amount" class="form-control" placeholder="0.00" step="0.01">
+                            </div>
+                            <small id="{{ account[1] }}MaxAmount" class="text-muted"></small>
+                        </fieldset>
+                        {% endfor %}
                     </div>
 
                     <div class="mb-3">
@@ -84,6 +109,7 @@
                         <p><strong>Student Name:</strong> <span data-receipt-field="studentName"></span></p>
                         <p><strong>Payment Type:</strong> <span data-receipt-field="paymentType"></span></p>
                         <p><strong>Transaction Type:</strong> <span data-receipt-field="transactionType"></span></p>
+                        <p data-receipt-row="transactionDetails"><strong>Account Details:</strong> <span data-receipt-field="transactionDetails"></span></p>
                         <p><strong>Amount:</strong> <span data-receipt-field="amount"></span></p>
                         <p><strong>Academic Year:</strong> <span data-receipt-field="academicYear"></span></p>
                         <p><strong>Semester:</strong> <span data-receipt-field="semester"></span></p>
@@ -177,6 +203,10 @@
     min-width: 0;
     text-align: right;
     overflow-wrap: anywhere;
+}
+
+#receiptPrintArea p[data-receipt-row="transactionDetails"] span {
+    white-space: pre-line;
 }
 
 </style>

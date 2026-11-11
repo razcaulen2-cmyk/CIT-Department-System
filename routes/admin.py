@@ -18,7 +18,7 @@ from flask import Blueprint, current_app, flash, jsonify, redirect, render_templ
 from werkzeug.security import check_password_hash
 
 from config import get_db_connection
-from models import attendance_model, event_model, semester_model
+from models import attendance_model, event_model, semester_model, transaction_model
 from services.database_backup import (
     MAX_RESTORE_BYTES,
     DatabaseBackupError,
@@ -30,6 +30,10 @@ from services.database_backup import (
 from services.windows_printer import list_local_printers, print_raw_receipt
 
 admin_bp = Blueprint("admin", __name__)
+
+
+class PaymentValidationError(Exception):
+    pass
 
 
 def ensure_transaction_balance_snapshots(cursor):
@@ -580,6 +584,7 @@ def edit_academic_term(id):
         conn = get_db_connection()
         cursor = conn.cursor()
         try:
+            transaction_model.ensure_transaction_adjustments(cursor)
             cursor.execute("SELECT id FROM school_terms WHERE id=%s", (id,))
             if not cursor.fetchone():
                 flash("Semester not found.", "danger")
@@ -679,25 +684,84 @@ def semester_students(semester_id):
     cursor.execute("SELECT * FROM school_terms WHERE id=%s", (semester_id,))
     semester = cursor.fetchone()
     if not semester:
+        cursor.close()
         conn.close()
         return redirect("/academic-terms")
+
     cursor.execute(
         """
+        SELECT DISTINCT course
+        FROM students
+        WHERE course IS NOT NULL AND TRIM(course)<>''
+        ORDER BY course
+        """
+    )
+    courses = [row["course"] for row in cursor.fetchall()]
+    cursor.execute(
+        """
+        SELECT DISTINCT year_level
+        FROM students
+        WHERE year_level IS NOT NULL
+        ORDER BY year_level
+        """
+    )
+    year_levels = [row["year_level"] for row in cursor.fetchall()]
+
+    search = request.args.get("search", "").strip()[:100]
+    course = request.args.get("course", "").strip()
+    if course not in courses:
+        course = ""
+    year_level = request.args.get("year_level", "").strip()
+    if year_level not in {str(year) for year in year_levels}:
+        year_level = ""
+
+    filters = []
+    params = [semester_id]
+    if search:
+        search_pattern = f"%{search}%"
+        filters.append(
+            """
+            (
+                s.firstname LIKE %s
+                OR s.lastname LIKE %s
+                OR CONCAT(s.firstname, ' ', s.lastname) LIKE %s
+                OR COALESCE(s.student_id, CAST(s.id AS CHAR)) LIKE %s
+            )
+            """
+        )
+        params.extend([search_pattern] * 4)
+    if course:
+        filters.append("s.course=%s")
+        params.append(course)
+    if year_level:
+        filters.append("s.year_level=%s")
+        params.append(year_level)
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+
+    cursor.execute(
+        f"""
         SELECT s.id, s.student_id, s.firstname, s.lastname, s.course, s.year_level,
                se.status, se.enrolled_at, se.dropped_at
         FROM students s
         LEFT JOIN semester_enrollments se
           ON se.student_id=s.id AND se.semester_id=%s
+        {where_clause}
         ORDER BY s.lastname, s.firstname
         """,
-        (semester_id,),
+        tuple(params),
     )
     students = cursor.fetchall()
+    cursor.close()
     conn.close()
     return render_template(
         "admin/semester_students.html",
         semester=semester,
         students=students,
+        courses=courses,
+        year_levels=year_levels,
+        search=search,
+        selected_course=course,
+        selected_year_level=year_level,
     )
 
 
@@ -719,15 +783,6 @@ def enroll_semester_student(semester_id, student_id):
         flash("Student not found.", "danger")
         return redirect(f"/academic-terms/{semester_id}/students")
     cursor.execute(
-        "SELECT status FROM semester_enrollments WHERE semester_id=%s AND student_id=%s",
-        (semester_id, student_id),
-    )
-    existing_enrollment = cursor.fetchone()
-    if existing_enrollment:
-        conn.close()
-        flash("This student already has an enrollment record for the semester.", "warning")
-        return redirect(f"/academic-terms/{semester_id}/students")
-    cursor.execute(
         "SELECT id FROM school_terms WHERE id=%s",
         (semester_id,),
     )
@@ -735,6 +790,38 @@ def enroll_semester_student(semester_id, student_id):
         conn.close()
         flash("Semester not found.", "danger")
         return redirect("/academic-terms")
+    cursor.execute(
+        """
+        SELECT status FROM semester_enrollments
+        WHERE semester_id=%s AND student_id=%s
+        FOR UPDATE
+        """,
+        (semester_id, student_id),
+    )
+    existing_enrollment = cursor.fetchone()
+    if existing_enrollment:
+        if existing_enrollment[0] == "dropped":
+            cursor.execute(
+                """
+                UPDATE semester_enrollments
+                SET status='enrolled', dropped_at=NULL
+                WHERE semester_id=%s AND student_id=%s AND status='dropped'
+                """,
+                (semester_id, student_id),
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            flash(
+                "Student re-enrolled. Their existing semester fund balance "
+                "and payments were left unchanged.",
+                "success",
+            )
+            return redirect(f"/academic-terms/{semester_id}/students")
+        cursor.close()
+        conn.close()
+        flash("This student is already enrolled for the semester.", "warning")
+        return redirect(f"/academic-terms/{semester_id}/students")
     ensure_transaction_balance_snapshots(cursor)
     semester_model.enroll_student(
         cursor,
@@ -1203,6 +1290,7 @@ def payments():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     ensure_transaction_balance_snapshots(cursor)
+    transaction_model.ensure_transaction_adjustments(cursor)
 
     cursor.execute("""
         SELECT id, academic_year, semester
@@ -1245,7 +1333,20 @@ def payments():
             t.academic_year,
             t.semester,
             t.transaction_date,
-            snapshot.transaction_id IS NOT NULL AS reversible
+            snapshot.transaction_id IS NOT NULL AS reversible,
+            COALESCE((
+                SELECT CASE
+                    WHEN SUM(adjustment.amount_delta) >= 0 THEN 'Increase'
+                    ELSE 'Decrease'
+                END
+                FROM transaction_adjustments adjustment
+                WHERE adjustment.transaction_id=t.id
+            ), '') AS adjustment_direction,
+            COALESCE((
+                SELECT MAX(adjustment.remarks)
+                FROM transaction_adjustments adjustment
+                WHERE adjustment.transaction_id=t.id
+            ), '') AS adjustment_remarks
         FROM transactions t
         JOIN students s ON t.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
         LEFT JOIN transaction_balance_snapshots snapshot ON snapshot.transaction_id = t.id
@@ -1262,6 +1363,12 @@ def payments():
                 OR CAST(t.student_id AS CHAR) LIKE %s
                 OR CAST(t.id AS CHAR) LIKE %s
                 OR t.transaction_type LIKE %s
+                OR EXISTS (
+                    SELECT 1
+                    FROM transaction_adjustments adjustment
+                    WHERE adjustment.transaction_id=t.id
+                        AND adjustment.remarks LIKE %s
+                )
                 OR t.payment_type LIKE %s
                 OR CAST(t.amount AS CHAR) LIKE %s
                 OR t.academic_year LIKE %s
@@ -1269,7 +1376,7 @@ def payments():
                 OR CAST(t.transaction_date AS CHAR) LIKE %s
             )
         """)
-        params.extend([search_pattern] * 11)
+        params.extend([search_pattern] * 12)
     if selected_academic_year:
         filters.append("t.academic_year=%s")
         params.append(selected_academic_year)
@@ -1326,6 +1433,7 @@ def transaction_report():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
+        transaction_model.ensure_transaction_adjustments(cursor)
         cursor.execute("SELECT CURDATE() AS report_date, NOW() AS generated_at")
         report_clock = cursor.fetchone()
         report_date = report_clock["report_date"]
@@ -1363,6 +1471,14 @@ def transaction_report():
                 ) AS student_name,
                 t.transaction_type,
                 t.payment_type,
+                COALESCE((
+                    SELECT CASE
+                        WHEN SUM(adjustment.amount_delta) >= 0 THEN 'Increase'
+                        ELSE 'Decrease'
+                    END
+                    FROM transaction_adjustments adjustment
+                    WHERE adjustment.transaction_id=t.id
+                ), '') AS adjustment_direction,
                 t.amount,
                 t.academic_year,
                 t.semester,
@@ -1407,7 +1523,10 @@ def transaction_report():
             period_label=period_label,
             semester_label=semester_label,
             generated_at=report_clock["generated_at"],
-            transaction_count=len(transactions),
+            transaction_count=sum(
+                transaction["transaction_type"] in {"Funds", "Fines"}
+                for transaction in transactions
+            ),
             total_amount=sum(totals.values(), Decimal("0.00")),
             funds_total=totals["Funds"],
             fines_total=totals["Fines"],
@@ -1758,70 +1877,84 @@ def restore_database():
 @admin_bp.route("/api/process-payment", methods=["POST"])
 @require_admin
 def process_payment():
-    from datetime import datetime
-    
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     student_id = data.get('student_id')
-    transaction_type = data.get('transaction_type')  # Funds or Fines
-    payment_type = data.get('payment_type')  # Partial or Full
-    amount = data.get('amount')
+    transaction_type = data.get('transaction_type')
     academic_year = data.get('academic_year')
     semester = data.get('semester')
     semester_id = data.get('semester_id')
-    
+
+    is_combined = 'components' in data
+    if is_combined:
+        components = data.get('components')
+        if (
+            transaction_type != "Funds + Fines"
+            or not isinstance(components, list)
+            or len(components) != 2
+            or not all(isinstance(component, dict) for component in components)
+            or {component.get('transaction_type') for component in components if isinstance(component, dict)}
+            != {"Funds", "Fines"}
+        ):
+            return {"error": "A combined payment must include one Funds and one Fines payment."}, 400
+    else:
+        components = [{
+            'transaction_type': transaction_type,
+            'payment_type': data.get('payment_type'),
+            'amount': data.get('amount'),
+        }]
+
     # Validate input
-    if not all([student_id, transaction_type, payment_type, amount]) or (
+    if not student_id or (
         not semester_id and not all([academic_year, semester])
     ):
         return {"error": "Missing required fields"}, 400
-    if transaction_type not in {"Funds", "Fines"}:
-        return {"error": "Choose Funds or Fines for the transaction type"}, 400
-    if payment_type not in {"Partial", "Full"}:
-        return {"error": "Choose Partial or Full for the payment type"}, 400
-    
-    try:
-        amount = Decimal(str(amount))
-        if not amount.is_finite() or amount <= 0:
-            return {"error": "Amount must be greater than 0"}, 400
-        amount = amount.quantize(Decimal("0.01"))
-    except (InvalidOperation, TypeError, ValueError):
-        return {"error": "Invalid amount"}, 400
+    for component in components:
+        if component.get('transaction_type') not in {"Funds", "Fines"}:
+            return {"error": "Choose Funds or Fines for each transaction."}, 400
+        if component.get('payment_type') not in {"Partial", "Full"}:
+            return {"error": "Choose Partial or Full for each transaction."}, 400
+        try:
+            amount = Decimal(str(component.get('amount')))
+            if not amount.is_finite() or amount <= 0:
+                return {"error": "Each payment amount must be greater than 0."}, 400
+            component['amount'] = amount.quantize(Decimal("0.01"))
+            if component['amount'] <= 0:
+                return {"error": "Each payment amount must be at least PHP 0.01."}, 400
+        except (InvalidOperation, TypeError, ValueError):
+            return {"error": "Enter a valid amount for each payment."}, 400
 
-    if transaction_type == "Fines":
+    if any(component['transaction_type'] == "Fines" for component in components):
         event_model.ensure_fine_assessment_column()
         event_model.ensure_fine_payment_allocations()
-    
+
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    ensure_transaction_balance_snapshots(cursor)
-    
-    # Verify student exists
-    cursor.execute(
-        "SELECT id, student_id, firstname, lastname FROM students WHERE student_id = %s",
-        (student_id,),
-    )
-    student = cursor.fetchone()
 
-    if not student:
+    try:
+        ensure_transaction_balance_snapshots(cursor)
+        conn.start_transaction()
+
         cursor.execute(
-            """
-            SELECT id, student_id, firstname, lastname
-            FROM students
-            WHERE id = %s AND student_id IS NULL
-            """,
+            "SELECT id, student_id, firstname, lastname FROM students WHERE student_id = %s",
             (student_id,),
         )
         student = cursor.fetchone()
-    
-    if not student:
-        cursor.close()
-        conn.close()
-        return {"error": "Student not found"}, 404
+        if not student:
+            cursor.execute(
+                """
+                SELECT id, student_id, firstname, lastname
+                FROM students
+                WHERE id = %s AND student_id IS NULL
+                """,
+                (student_id,),
+            )
+            student = cursor.fetchone()
+        if not student:
+            conn.rollback()
+            return {"error": "Student not found"}, 404
 
-    payment_key = student['student_id'] or str(student['id'])
-    
-    try:
-        # Log the transaction
+        payment_key = student['student_id'] or str(student['id'])
+
         if semester_id:
             cursor.execute(
                 """
@@ -1844,136 +1977,484 @@ def process_payment():
             )
         term_row = cursor.fetchone()
         if not term_row:
+            conn.rollback()
             return {"error": "Select a valid semester for this payment."}, 400
         semester_id = term_row["id"]
         academic_year = term_row["academic_year"]
         semester = term_row["semester"]
 
-        cursor.execute("""
-            INSERT INTO transactions 
-            (student_id, semester_id, transaction_type, payment_type, amount, academic_year, semester, created_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            payment_key,
-            semester_id,
-            transaction_type,
-            payment_type,
-            amount,
-            academic_year,
-            semester,
-            session.get('admin', 'unknown')
-        ))
-        transaction_no = cursor.lastrowid
-        cursor.execute(
-            "SELECT transaction_date FROM transactions WHERE id = %s",
-            (transaction_no,),
-        )
-        transaction_date = cursor.fetchone()["transaction_date"]
-        balance_snapshot = []
-        
-        # Apply payment amount to balances (support Partial and Full)
-        remaining = Decimal(str(amount))
-        if transaction_type == 'Funds':
-            cursor.execute(
-                """
-                SELECT id, amount_due, paid_amount
-                FROM student_funds
-                WHERE student_id = %s AND semester_id=%s AND amount_due > 0
-                ORDER BY amount_due ASC, id ASC
-                FOR UPDATE
-                """,
-                (payment_key, semester_id),
-            )
-            fund_rows = cursor.fetchall()
-            for row in fund_rows:
-                if remaining <= 0:
-                    break
-                due = Decimal(str(row['amount_due']))
-                deduct = min(due, remaining)
-                after_amount = due - deduct
+        transactions = []
+        for component in components:
+            component_type = component['transaction_type']
+            payment_type = component['payment_type']
+            amount = component['amount']
+            balance_snapshot = []
+
+            if component_type == 'Funds':
                 cursor.execute(
                     """
-                    UPDATE student_funds
-                    SET amount_due = %s, paid_amount = paid_amount + %s
-                    WHERE id = %s AND student_id = %s
+                    SELECT id, amount_due, paid_amount
+                    FROM student_funds
+                    WHERE student_id = %s AND semester_id=%s AND amount_due > 0
+                    ORDER BY amount_due ASC, id ASC
+                    FOR UPDATE
                     """,
-                    (after_amount, deduct, row['id'], payment_key),
+                    (payment_key, semester_id),
                 )
-                balance_snapshot.append({
-                    'row_id': row['id'],
-                    'before': format(due, '.2f'),
-                    'after': format(after_amount, '.2f'),
-                })
-                remaining -= deduct
-        else:  # Fines
-            cursor.execute(
-                """
-                SELECT fine_id, event_id, fine_type, amount
-                FROM fines
-                WHERE student_id = %s AND semester_id=%s AND amount > 0
-                ORDER BY event_id, fine_id
-                FOR UPDATE
-                """,
-                (payment_key, semester_id),
-            )
-            fine_rows = cursor.fetchall()
-            for row in fine_rows:
-                if remaining <= 0:
-                    break
-                fine_amount = Decimal(str(row['amount'] or 0))
-                deduct = min(fine_amount, remaining)
-                after_amount = fine_amount - deduct
-                cursor.execute(
-                    "UPDATE fines SET amount = %s WHERE fine_id = %s AND student_id = %s",
-                    (after_amount, row['fine_id'], payment_key),
-                )
+                balance_rows = cursor.fetchall()
+            else:
                 cursor.execute(
                     """
-                    INSERT INTO fine_payment_allocations
-                        (transaction_id, source_fine_id, student_id, event_id, fine_type, amount_paid)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    SELECT fine_id, event_id, fine_type, amount
+                    FROM fines
+                    WHERE student_id = %s AND semester_id=%s AND amount > 0
+                    ORDER BY event_id, fine_id
+                    FOR UPDATE
                     """,
-                    (
-                        transaction_no,
-                        row['fine_id'],
-                        payment_key,
-                        row['event_id'],
-                        row['fine_type'],
-                        deduct,
-                    ),
+                    (payment_key, semester_id),
                 )
-                balance_snapshot.append({
-                    'row_id': row['fine_id'],
-                    'event_id': row['event_id'],
-                    'fine_type': row['fine_type'],
-                    'before': format(fine_amount, '.2f'),
-                    'after': format(after_amount, '.2f'),
-                })
+                balance_rows = cursor.fetchall()
+
+            balance_total = sum(
+                (Decimal(str((row.get('amount_due') if component_type == 'Funds' else row.get('amount')) or 0))
+                 for row in balance_rows),
+                Decimal("0.00"),
+            )
+            if is_combined:
+                if amount > balance_total:
+                    raise PaymentValidationError(f"{component_type} payment exceeds its outstanding balance.")
+                if payment_type == "Full" and amount != balance_total:
+                    raise PaymentValidationError(
+                        f"Full {component_type.lower()} payment must match the outstanding balance."
+                    )
+                if payment_type == "Partial" and amount >= balance_total:
+                    raise PaymentValidationError(
+                        f"Choose Full for a payment that clears the {component_type.lower()} balance."
+                    )
+
+            cursor.execute(
+                """
+                INSERT INTO transactions
+                    (student_id, semester_id, transaction_type, payment_type, amount, academic_year, semester, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    payment_key,
+                    semester_id,
+                    component_type,
+                    payment_type,
+                    amount,
+                    academic_year,
+                    semester,
+                    session.get('admin', 'unknown'),
+                ),
+            )
+            transaction_no = cursor.lastrowid
+            cursor.execute(
+                "SELECT transaction_date FROM transactions WHERE id = %s",
+                (transaction_no,),
+            )
+            transaction_date = cursor.fetchone()["transaction_date"]
+
+            remaining = amount
+            for row in balance_rows:
+                if remaining <= 0:
+                    break
+                if component_type == 'Funds':
+                    row_id = row['id']
+                    before_amount = Decimal(str(row['amount_due']))
+                else:
+                    row_id = row['fine_id']
+                    before_amount = Decimal(str(row['amount'] or 0))
+                deduct = min(before_amount, remaining)
+                after_amount = before_amount - deduct
+
+                if component_type == 'Funds':
+                    cursor.execute(
+                        """
+                        UPDATE student_funds
+                        SET amount_due = %s, paid_amount = paid_amount + %s
+                        WHERE id = %s AND student_id = %s
+                        """,
+                        (after_amount, deduct, row_id, payment_key),
+                    )
+                    balance_snapshot.append({
+                        'row_id': row_id,
+                        'before': format(before_amount, '.2f'),
+                        'after': format(after_amount, '.2f'),
+                    })
+                else:
+                    cursor.execute(
+                        "UPDATE fines SET amount = %s WHERE fine_id = %s AND student_id = %s",
+                        (after_amount, row_id, payment_key),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO fine_payment_allocations
+                            (transaction_id, source_fine_id, student_id, event_id, fine_type, amount_paid)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            transaction_no,
+                            row_id,
+                            payment_key,
+                            row['event_id'],
+                            row['fine_type'],
+                            deduct,
+                        ),
+                    )
+                    balance_snapshot.append({
+                        'row_id': row_id,
+                        'event_id': row['event_id'],
+                        'fine_type': row['fine_type'],
+                        'before': format(before_amount, '.2f'),
+                        'after': format(after_amount, '.2f'),
+                    })
                 remaining -= deduct
 
-        cursor.execute(
-            """
-            INSERT INTO transaction_balance_snapshots
-                (transaction_id, transaction_type, snapshot)
-            VALUES (%s, %s, %s)
-            """,
-            (transaction_no, transaction_type, json.dumps(balance_snapshot)),
-        )
-        
+            cursor.execute(
+                """
+                INSERT INTO transaction_balance_snapshots
+                    (transaction_id, transaction_type, snapshot)
+                VALUES (%s, %s, %s)
+                """,
+                (transaction_no, component_type, json.dumps(balance_snapshot)),
+            )
+            transactions.append({
+                "transaction_no": transaction_no,
+                "transaction_type": component_type,
+                "payment_type": payment_type,
+                "amount": format(amount, '.2f'),
+                "transaction_date": transaction_date,
+            })
+
         conn.commit()
-        
+
+        for transaction in transactions:
+            transaction["transaction_date"] = transaction["transaction_date"].strftime("%b %d, %Y %I:%M %p")
+        total_amount = sum((component['amount'] for component in components), Decimal("0.00"))
         return {
             "success": True,
-            "message": f"Payment recorded: {student['firstname']} {student['lastname']} - PHP {amount}",
+            "message": f"Payment recorded: {student['firstname']} {student['lastname']} - PHP {total_amount}",
             "student_name": f"{student['firstname']} {student['lastname']}",
-            "transaction_date": transaction_date.strftime("%b %d, %Y %I:%M %p"),
-            "transaction_no": transaction_no,
+            "transaction_date": transactions[0]["transaction_date"],
+            "transaction_no": transactions[0]["transaction_no"],
+            "transactions": transactions,
         }
-    
+
+    except PaymentValidationError as error:
+        conn.rollback()
+        return {"error": str(error)}, 400
     except Exception as e:
         conn.rollback()
         return {"error": str(e)}, 500
-    
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@admin_bp.route("/api/adjust-balance", methods=["POST"])
+@require_admin
+def adjust_balance():
+    data = request.get_json(silent=True) or {}
+    student_identifier = str(data.get("student_id") or "").strip()
+    account_type = data.get("account_type")
+    direction = data.get("direction")
+    remarks = str(data.get("remarks") or "").strip()
+
+    try:
+        semester_id = int(data.get("semester_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Choose a valid semester."}), 400
+    try:
+        amount = Decimal(str(data.get("amount")))
+        if not amount.is_finite() or amount <= 0 or amount > Decimal("99999999.99"):
+            return jsonify({"error": "Enter an adjustment amount between PHP 0.01 and PHP 99,999,999.99."}), 400
+        rounded_amount = amount.quantize(Decimal("0.01"))
+        if rounded_amount != amount:
+            return jsonify({"error": "Adjustment amounts must have no more than two decimal places."}), 400
+        amount = rounded_amount
+    except (InvalidOperation, TypeError, ValueError):
+        return jsonify({"error": "Enter a valid adjustment amount."}), 400
+
+    if not student_identifier:
+        return jsonify({"error": "Student is required."}), 400
+    if account_type not in {"Funds", "Fines"}:
+        return jsonify({"error": "Choose Funds or Fines."}), 400
+    if direction not in {"increase", "decrease"}:
+        return jsonify({"error": "Choose whether to increase or decrease the balance."}), 400
+    if not remarks:
+        return jsonify({"error": "Remarks are required for every balance adjustment."}), 400
+    if len(remarks) > 2000:
+        return jsonify({"error": "Remarks must be 2,000 characters or fewer."}), 400
+
+    if account_type == "Fines":
+        event_model.ensure_fine_assessment_column()
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        transaction_model.ensure_transaction_adjustments(cursor)
+        transaction_model.ensure_adjustment_transaction_support(cursor)
+        conn.rollback()
+        conn.start_transaction()
+        cursor.execute(
+            """
+            SELECT id, student_id, firstname, lastname
+            FROM students
+            WHERE student_id=%s
+            LIMIT 1
+            """,
+            (student_identifier,),
+        )
+        student = cursor.fetchone()
+        if not student:
+            cursor.execute(
+                """
+                SELECT id, student_id, firstname, lastname
+                FROM students
+                WHERE id=%s AND student_id IS NULL
+                LIMIT 1
+                """,
+                (student_identifier,),
+            )
+            student = cursor.fetchone()
+        if not student:
+            conn.rollback()
+            return jsonify({"error": "Student not found."}), 404
+
+        student_key = student["student_id"] or str(student["id"])
+        cursor.execute(
+            """
+            SELECT id, academic_year, semester
+            FROM school_terms
+            WHERE id=%s
+            LIMIT 1
+            """,
+            (semester_id,),
+        )
+        term = cursor.fetchone()
+        if not term:
+            conn.rollback()
+            return jsonify({"error": "Choose a valid semester."}), 400
+
+        if account_type == "Funds":
+            cursor.execute(
+                """
+                SELECT id, amount_due, assessed_amount, paid_amount, is_semester_fund
+                FROM student_funds
+                WHERE student_id=%s AND semester_id=%s
+                ORDER BY is_semester_fund DESC, id
+                FOR UPDATE
+                """,
+                (student_key, semester_id),
+            )
+            balance_rows = cursor.fetchall()
+            outstanding = sum(
+                (Decimal(str(row["amount_due"] or 0)) for row in balance_rows),
+                Decimal("0.00"),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT fine_id, event_id, fine_type, amount, assessed_amount
+                FROM fines
+                WHERE student_id=%s AND semester_id=%s
+                ORDER BY event_id, fine_id
+                FOR UPDATE
+                """,
+                (student_key, semester_id),
+            )
+            balance_rows = cursor.fetchall()
+            outstanding = sum(
+                (Decimal(str(row["amount"] or 0)) for row in balance_rows),
+                Decimal("0.00"),
+            )
+
+        if direction == "decrease" and amount > outstanding:
+            conn.rollback()
+            return jsonify({
+                "error": f"Cannot decrease by more than the outstanding {account_type.lower()} balance (PHP {outstanding:.2f})."
+            }), 400
+        if direction == "increase" and account_type == "Fines" and not balance_rows:
+            conn.rollback()
+            return jsonify({
+                "error": "This semester has no fine assessment to increase. Add or assess a fine first."
+            }), 400
+
+        cursor.execute(
+            """
+            INSERT INTO transactions
+                (student_id, semester_id, transaction_type, payment_type, amount,
+                 academic_year, semester, created_by)
+            VALUES (%s, %s, 'Adjustment', %s, %s, %s, %s, %s)
+            """,
+            (
+                student_key,
+                semester_id,
+                account_type,
+                amount,
+                term["academic_year"],
+                term["semester"],
+                session.get("admin", "unknown"),
+            ),
+        )
+        transaction_id = cursor.lastrowid
+        remaining = amount
+        balance_changes = []
+        if direction == "increase":
+            if account_type == "Funds":
+                semester_fund = next(
+                    (row for row in balance_rows if row["is_semester_fund"]),
+                    None,
+                )
+                if semester_fund:
+                    row_id = semester_fund["id"]
+                    current_due = Decimal(str(semester_fund["amount_due"] or 0))
+                    current_assessed = Decimal(str(
+                        semester_fund["assessed_amount"]
+                        if semester_fund["assessed_amount"] is not None
+                        else current_due + Decimal(str(semester_fund["paid_amount"] or 0))
+                    ))
+                    cursor.execute(
+                        """
+                        UPDATE student_funds
+                        SET amount_due=%s, assessed_amount=%s
+                        WHERE id=%s AND student_id=%s
+                        """,
+                        (current_due + amount, current_assessed + amount, row_id, student_key),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO student_funds
+                            (student_id, semester_id, fund_id, amount_due, assessed_amount,
+                             paid_amount, is_semester_fund, description)
+                        VALUES (%s, %s, NULL, %s, %s, 0, FALSE, 'Balance adjustment')
+                        """,
+                        (student_key, semester_id, amount, amount),
+                    )
+                    row_id = cursor.lastrowid
+                balance_changes.append({
+                    "balance_row_id": row_id,
+                    "amount_delta": amount,
+                    "event_id": None,
+                    "fine_type": None,
+                })
+            else:
+                fine_row = balance_rows[0]
+                row_id = fine_row["fine_id"]
+                current_due = Decimal(str(fine_row["amount"] or 0))
+                current_assessed = Decimal(str(
+                    fine_row["assessed_amount"]
+                    if fine_row["assessed_amount"] is not None
+                    else current_due
+                ))
+                cursor.execute(
+                    """
+                    UPDATE fines
+                    SET amount=%s, assessed_amount=%s
+                    WHERE fine_id=%s AND student_id=%s
+                    """,
+                    (current_due + amount, current_assessed + amount, row_id, student_key),
+                )
+                balance_changes.append({
+                    "balance_row_id": row_id,
+                    "amount_delta": amount,
+                    "event_id": fine_row["event_id"],
+                    "fine_type": fine_row["fine_type"],
+                })
+        else:
+            for row in balance_rows:
+                if remaining <= 0:
+                    break
+                row_id = row["id"] if account_type == "Funds" else row["fine_id"]
+                due = Decimal(str(row["amount_due"] if account_type == "Funds" else row["amount"] or 0))
+                if due <= 0:
+                    continue
+                deducted = min(due, remaining)
+                if account_type == "Funds":
+                    paid = Decimal(str(row["paid_amount"] or 0))
+                    assessed = Decimal(str(
+                        row["assessed_amount"]
+                        if row["assessed_amount"] is not None
+                        else due + paid
+                    ))
+                    cursor.execute(
+                        """
+                        UPDATE student_funds
+                        SET amount_due=%s, assessed_amount=%s
+                        WHERE id=%s AND student_id=%s
+                        """,
+                        (due - deducted, assessed - deducted, row_id, student_key),
+                    )
+                    event_id = None
+                    fine_type = None
+                else:
+                    assessed = Decimal(str(
+                        row["assessed_amount"]
+                        if row["assessed_amount"] is not None
+                        else due
+                    ))
+                    cursor.execute(
+                        """
+                        UPDATE fines
+                        SET amount=%s, assessed_amount=%s
+                        WHERE fine_id=%s AND student_id=%s
+                        """,
+                        (due - deducted, assessed - deducted, row_id, student_key),
+                    )
+                    event_id = row["event_id"]
+                    fine_type = row["fine_type"]
+                balance_changes.append({
+                    "balance_row_id": row_id,
+                    "amount_delta": -deducted,
+                    "event_id": event_id,
+                    "fine_type": fine_type,
+                })
+                remaining -= deducted
+
+        for change in balance_changes:
+            cursor.execute(
+                """
+                INSERT INTO transaction_adjustments
+                    (transaction_id, student_id, account_type, amount_delta, remarks,
+                     balance_row_id, event_id, fine_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    transaction_id,
+                    student_key,
+                    account_type,
+                    change["amount_delta"],
+                    remarks,
+                    change["balance_row_id"],
+                    change["event_id"],
+                    change["fine_type"],
+                ),
+            )
+
+        conn.commit()
+        return jsonify({
+            "success": True,
+            "transaction_id": transaction_id,
+            "student_name": f"{student['firstname']} {student['lastname']}",
+            "account_type": account_type,
+            "direction": direction,
+            "amount": format(amount, ".2f"),
+            "academic_year": term["academic_year"],
+            "semester": term["semester"],
+        })
+    except Exception:
+        conn.rollback()
+        current_app.logger.exception(
+            "Failed to adjust %s balance for student %s in semester %s.",
+            account_type,
+            student_identifier,
+            semester_id,
+        )
+        return jsonify({"error": "Unable to adjust this balance. No changes were saved."}), 500
     finally:
         cursor.close()
         conn.close()

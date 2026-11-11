@@ -106,11 +106,24 @@ Payments & Transactions
                         <td class="text-muted">{{ tx.transaction_date.strftime('%b %d, %Y %I:%M %p') if tx.transaction_date else '-' }}</td>
                         <td class="fw-600">{{ tx.firstname }} {{ tx.lastname }}</td>
                         <td>
+                            {% if tx.transaction_type == 'Adjustment' %}
+                            <button type="button" class="badge badge-adjustment adjustment-remarks-btn"
+                                    data-bs-toggle="modal" data-bs-target="#adjustmentRemarksModal"
+                                    data-adjustment-remarks="{{ tx.adjustment_remarks or '' }}">
+                                Adjustment
+                            </button>
+                            {% else %}
                             <span class="badge {% if tx.transaction_type == 'Funds' %}badge-funds{% else %}badge-fines{% endif %}">
                                 {{ tx.transaction_type }}
                             </span>
+                            {% endif %}
                         </td>
-                        <td>{{ tx.payment_type }}</td>
+                        <td>
+                            {{ tx.payment_type }}
+                            {% if tx.transaction_type == 'Adjustment' and tx.adjustment_direction %}
+                            · {{ tx.adjustment_direction }}
+                            {% endif %}
+                        </td>
                         <td class="amount">PHP {{ "%.2f"|format(tx.amount) }}</td>
                         <td>{{ tx.academic_year }}</td>
                         <td>{{ tx.semester }}</td>
@@ -265,6 +278,21 @@ document.addEventListener('DOMContentLoaded', function () {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-dark" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="adjustmentRemarksModal" tabindex="-1" aria-labelledby="adjustmentRemarksTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="adjustmentRemarksTitle">Balance Adjustment Remarks</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-2">Admin's reason for this adjustment</p>
+                <div id="adjustmentRemarksContent" class="text-break"></div>
             </div>
         </div>
     </div>
@@ -459,6 +487,19 @@ document.addEventListener('DOMContentLoaded', function () {
 .badge-fines {
     background-color: rgba(183, 28, 28, 0.14);
     color: #ff8a80;
+}
+
+.badge-adjustment {
+    border: 1px solid rgba(212, 175, 55, 0.55);
+    background-color: rgba(212, 175, 55, 0.16);
+    color: #e6c45a;
+    cursor: pointer;
+}
+
+.badge-adjustment:hover,
+.badge-adjustment:focus-visible {
+    background-color: rgba(212, 175, 55, 0.28);
+    color: #ffe28a;
 }
 
 .modal-content {

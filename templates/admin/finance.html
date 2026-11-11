@@ -191,11 +191,78 @@ Funds & Fines
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-dark me-auto" id="proceedAttendanceTransaction">
+                <button type="button" class="btn btn-outline-warning me-auto" id="openBalanceAdjustment">
+                    <i class="bi bi-sliders"></i> Adjust Balance
+                </button>
+                <button type="button" class="btn btn-dark" id="proceedAttendanceTransaction">
                     Proceed Transaction
                 </button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="balanceAdjustmentModal" tabindex="-1" aria-labelledby="balanceAdjustmentTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form id="balanceAdjustmentForm">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="balanceAdjustmentTitle">Adjust Balance</h5>
+                        <p id="adjustmentStudentName" class="text-muted small mb-0"></p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="balanceAdjustmentFeedback" class="d-none" role="alert"></div>
+                    <input type="hidden" id="adjustmentStudentId">
+                    <div class="mb-3">
+                        <label for="adjustmentSemester" class="form-label">Semester</label>
+                        <select id="adjustmentSemester" class="form-select" required>
+                            <option value="">Select semester</option>
+                            {% for term in terms %}
+                            <option value="{{ term.id }}" {% if term.id|string == selected_semester_id|string %}selected{% endif %}>
+                                {{ term.academic_year }} · {{ term.semester }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="adjustmentAccount" class="form-label">Account</label>
+                        <select id="adjustmentAccount" class="form-select" required>
+                            <option value="">Select account</option>
+                            <option value="Funds">Funds</option>
+                            <option value="Fines">Fines</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="adjustmentDirection" class="form-label">Adjustment</label>
+                        <select id="adjustmentDirection" class="form-select" required>
+                            <option value="">Choose increase or decrease</option>
+                            <option value="increase">Increase balance</option>
+                            <option value="decrease">Decrease balance</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="adjustmentAmount" class="form-label">Amount</label>
+                        <div class="input-group">
+                            <span class="input-group-text">PHP</span>
+                            <input type="number" id="adjustmentAmount" class="form-control"
+                                   min="0.01" max="99999999.99" step="0.01" placeholder="0.00" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="adjustmentRemarks" class="form-label">Remarks / Reason</label>
+                        <textarea id="adjustmentRemarks" class="form-control" rows="4" maxlength="2000"
+                                  placeholder="Explain why this balance is being adjusted." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning" id="saveBalanceAdjustment">Save Adjustment</button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
@@ -934,6 +1001,58 @@ document.querySelectorAll('.list-attendance-btn').forEach((button) => {
                 listElement.innerHTML = '';
             });
     });
+});
+
+document.getElementById('openBalanceAdjustment').addEventListener('click', function () {
+    const attendanceModalElement = document.getElementById('studentAttendanceModal');
+    const adjustmentModalElement = document.getElementById('balanceAdjustmentModal');
+    document.getElementById('adjustmentStudentId').value = attendanceModalElement.dataset.paymentStudentId || '';
+    document.getElementById('adjustmentStudentName').textContent =
+        document.getElementById('attendanceStudentName').textContent;
+    document.getElementById('balanceAdjustmentForm').reset();
+    document.getElementById('adjustmentStudentId').value = attendanceModalElement.dataset.paymentStudentId || '';
+    document.getElementById('balanceAdjustmentFeedback').className = 'd-none';
+    document.getElementById('balanceAdjustmentFeedback').textContent = '';
+    attendanceModalElement.addEventListener('hidden.bs.modal', function () {
+        bootstrap.Modal.getOrCreateInstance(adjustmentModalElement).show();
+    }, {once: true});
+    bootstrap.Modal.getOrCreateInstance(attendanceModalElement).hide();
+});
+
+document.getElementById('balanceAdjustmentForm').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    const submitButton = document.getElementById('saveBalanceAdjustment');
+    const feedback = document.getElementById('balanceAdjustmentFeedback');
+    submitButton.disabled = true;
+    feedback.className = 'd-none';
+    feedback.textContent = '';
+    try {
+        const response = await fetch('/api/adjust-balance', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                student_id: document.getElementById('adjustmentStudentId').value,
+                semester_id: document.getElementById('adjustmentSemester').value,
+                account_type: document.getElementById('adjustmentAccount').value,
+                direction: document.getElementById('adjustmentDirection').value,
+                amount: document.getElementById('adjustmentAmount').value,
+                remarks: document.getElementById('adjustmentRemarks').value
+            })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Unable to save the balance adjustment.');
+        }
+        feedback.className = 'alert alert-success';
+        feedback.textContent =
+            `${data.account_type} balance adjusted by PHP ${data.amount}. Refreshing the balance list...`;
+        window.setTimeout(() => window.location.reload(), 900);
+    } catch (error) {
+        feedback.className = 'alert alert-danger';
+        feedback.textContent = error.message;
+    } finally {
+        submitButton.disabled = false;
+    }
 });
 </script>
 

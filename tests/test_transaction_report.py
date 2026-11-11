@@ -90,6 +90,26 @@ class TransactionReportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Multiple Semesters", response.get_data(as_text=True))
 
+    def test_adjustment_is_listed_but_excluded_from_collected_totals_and_count(self):
+        adjustment = self.transaction("2026-2027", "1st Semester")
+        adjustment.update({
+            "id": 2,
+            "transaction_type": "Adjustment",
+            "payment_type": "Funds",
+            "adjustment_direction": "Decrease",
+            "amount": Decimal("75.00"),
+        })
+        response = self.render_report([
+            self.transaction("2026-2027", "1st Semester"),
+            adjustment,
+        ])
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Adjustment", html)
+        self.assertIn("Number of transactions</th>\n                    <td>1</td>", html)
+        self.assertIn("Total collected</th>\n                    <td>PHP 100.00</td>", html)
+
 
 if __name__ == "__main__":
     unittest.main()

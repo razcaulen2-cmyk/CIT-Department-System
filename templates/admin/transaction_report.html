@@ -35,10 +35,15 @@
                     </td>
                     <td>{{ tx.student_name or tx.student_id or '-' }}</td>
                     <td>
-                        <span class="badge {% if tx.transaction_type == 'Funds' %}badge-funds{% else %}badge-fines{% endif %}">
+                        <span class="badge {% if tx.transaction_type == 'Funds' %}badge-funds{% elif tx.transaction_type == 'Adjustment' %}badge-adjustment{% else %}badge-fines{% endif %}">
                             {{ tx.transaction_type }}
                         </span>
-                        <span class="report-payment-type">{{ tx.payment_type }}</span>
+                        <span class="report-payment-type">
+                            {{ tx.payment_type }}
+                            {% if tx.transaction_type == 'Adjustment' and tx.adjustment_direction %}
+                            · {{ tx.adjustment_direction }}
+                            {% endif %}
+                        </span>
                     </td>
                     <td class="report-amount">PHP {{ "%.2f"|format(tx.amount) }}</td>
                 </tr>

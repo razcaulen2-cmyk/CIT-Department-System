@@ -9,10 +9,17 @@ from models import event_model
 
 
 class FakeCursor:
-    def __init__(self, existing_fine=None, dictionary=False, allocated_paid=Decimal("0.00")):
+    def __init__(
+        self,
+        existing_fine=None,
+        dictionary=False,
+        allocated_paid=Decimal("0.00"),
+        manual_adjustment=Decimal("0.00"),
+    ):
         self.existing_fine = existing_fine
         self.dictionary = dictionary
         self.allocated_paid = allocated_paid
+        self.manual_adjustment = manual_adjustment
         self.queries = []
 
     def execute(self, query, params=None):
@@ -26,6 +33,8 @@ class FakeCursor:
             return self.existing_fine
         if "SUM(amount_paid)" in query:
             return (self.allocated_paid,)
+        if "SUM(amount_delta)" in query:
+            return (self.manual_adjustment,)
         if "FROM students WHERE id=%s" in query and "FOR UPDATE" in query:
             return (1, "000123")
         return None
@@ -77,7 +86,7 @@ class FineAssessmentTests(unittest.TestCase):
             cursor.queries[-1][1],
             (Decimal("50.00"), Decimal("100.00"), 4, 17),
         )
-        self.assertIn("FOR UPDATE", cursor.queries[0][0])
+        self.assertTrue(any("FOR UPDATE" in query for query, _ in cursor.queries))
 
     def test_resync_applies_new_assessment_without_reopening_paid_amount(self):
         cursor = FakeCursor((17, Decimal("50.00"), Decimal("100.00")))
@@ -102,6 +111,21 @@ class FineAssessmentTests(unittest.TestCase):
         self.assertEqual(
             cursor.queries[-1][1],
             ("000123", 4, "Absent", Decimal("0.00"), Decimal("25.00"), 4),
+        )
+
+    def test_resync_preserves_balance_adjustment(self):
+        cursor = FakeCursor(
+            (17, Decimal("50.00"), Decimal("100.00")),
+            manual_adjustment=Decimal("10.00"),
+        )
+        connection = FakeConnection([cursor])
+
+        with patch.object(event_model, "get_db_connection", return_value=connection):
+            event_model.create_or_update_fine("000123", 4, "Absent", 120)
+
+        self.assertEqual(
+            cursor.queries[-1][1],
+            (Decimal("80.00"), Decimal("130.00"), 4, 17),
         )
 
 

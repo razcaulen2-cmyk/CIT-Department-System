@@ -16,7 +16,9 @@ The application listens on all network interfaces on port `5000`. On the office 
 powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1
 ```
 
-This adds a shortcut to the current Windows user's Startup folder. The tracker starts when that user signs in. On the desktop, open `http://127.0.0.1:5000`; from other office computers on the same LAN, open `http://<desktop-IPv4-address>:5000` (for example, `http://192.168.50.16:5000`). Run `ipconfig` on the desktop to find its current IPv4 address. Ask the network administrator to reserve that address for the desktop in DHCP so the office URL does not change.
+This registers a hidden Windows scheduled task for the current user, which starts the tracker when that user signs in. The task stays active for as long as the server runs, independently of PowerShell, Command Prompt, or VS Code. Re-run the command to update an existing installation. On the desktop, open `http://127.0.0.1:5000`; from other office computers on the same LAN, open `http://<desktop-IPv4-address>:5000` (for example, `http://192.168.50.16:5000`). Run `ipconfig` on the desktop to find its current IPv4 address. Ask the network administrator to reserve that address for the desktop in DHCP so the office URL does not change.
+
+Startup output and errors are recorded in `%LOCALAPPDATA%\Department Fines Tracker\autostart.log`. To remove the startup task, run `powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1 -Uninstall`.
 
 Windows Firewall may block connections from other computers. In an elevated PowerShell window on the desktop, allow TCP port 5000 only from the local subnet on a Domain or Private network profile:
 
@@ -24,7 +26,7 @@ Windows Firewall may block connections from other computers. In an elevated Powe
 New-NetFirewallRule -DisplayName "CIT Department System (Office LAN)" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5000 -Profile Domain,Private -RemoteAddress LocalSubnet
 ```
 
-Keep the desktop powered on and signed in while staff use the system. This HTTP setup is intended only for a trusted office LAN, not direct internet access. To remove the startup shortcut, run `powershell -ExecutionPolicy Bypass -File .\install_autostart.ps1 -Uninstall`. Remove the firewall rule when office LAN access is no longer needed with `Remove-NetFirewallRule -DisplayName "CIT Department System (Office LAN)"`.
+Keep the desktop powered on and signed in while staff use the system. This HTTP setup is intended only for a trusted office LAN, not direct internet access. Remove the firewall rule when office LAN access is no longer needed with `Remove-NetFirewallRule -DisplayName "CIT Department System (Office LAN)"`.
 
 ### Running without internet
 

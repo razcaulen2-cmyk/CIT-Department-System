@@ -1,7 +1,7 @@
 import json
 
 from config import get_db_connection
-from models import attendance_model, semester_model, student_model
+from models import attendance_model, semester_model, student_model, transaction_model
 from datetime import datetime, date, timedelta, time
 from decimal import Decimal
 
@@ -578,6 +578,7 @@ def delete_event(event_id):
 def create_or_update_fine(student_id, event_id, fine_type, amount):
 	conn = get_db_connection()
 	cursor = conn.cursor()
+	transaction_model.ensure_transaction_adjustments(cursor)
 	cursor.execute(
 		"""
 		SELECT fine_id, amount, assessed_amount
@@ -599,6 +600,17 @@ def create_or_update_fine(student_id, event_id, fine_type, amount):
 		(student_id, event_id, fine_type),
 	)
 	allocated_paid = Decimal(str(cursor.fetchone()[0] or 0))
+	cursor.execute(
+		"""
+		SELECT COALESCE(SUM(amount_delta), 0)
+		FROM transaction_adjustments
+		WHERE student_id=%s AND account_type='Fines'
+		  AND event_id=%s AND fine_type=%s
+		""",
+		(student_id, event_id, fine_type),
+	)
+	manual_adjustment = Decimal(str(cursor.fetchone()[0] or 0))
+	adjusted_assessment = assessed_amount + manual_adjustment
 	if fine:
 		previous_assessed = Decimal(
 			str(fine[2] if fine[2] is not None else fine[1] or 0)
@@ -609,7 +621,7 @@ def create_or_update_fine(student_id, event_id, fine_type, amount):
 			Decimal('0.00'),
 		)
 		amount_due = max(
-			assessed_amount - max(allocated_paid, previously_paid),
+			adjusted_assessment - max(allocated_paid, previously_paid),
 			Decimal('0.00'),
 		)
 		cursor.execute(
@@ -619,10 +631,10 @@ def create_or_update_fine(student_id, event_id, fine_type, amount):
 			    semester_id=(SELECT semester_id FROM events WHERE event_id=%s)
 			WHERE fine_id=%s
 			""",
-			(amount_due, assessed_amount, event_id, fine[0]),
+			(amount_due, adjusted_assessment, event_id, fine[0]),
 		)
 	else:
-		amount_due = max(assessed_amount - allocated_paid, Decimal('0.00'))
+		amount_due = max(adjusted_assessment - allocated_paid, Decimal('0.00'))
 		cursor.execute(
 			"""
 			INSERT INTO fines
@@ -631,7 +643,7 @@ def create_or_update_fine(student_id, event_id, fine_type, amount):
 			FROM events
 			WHERE event_id=%s
 			""",
-			(student_id, event_id, fine_type, amount_due, assessed_amount, event_id),
+			(student_id, event_id, fine_type, amount_due, adjusted_assessment, event_id),
 		)
 	conn.commit()
 	cursor.close()

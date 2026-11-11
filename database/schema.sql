@@ -134,6 +134,23 @@ CREATE TABLE IF NOT EXISTS transaction_balance_snapshots (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS transaction_adjustments (
+    adjustment_id INT AUTO_INCREMENT PRIMARY KEY,
+    transaction_id INT NOT NULL,
+    student_id VARCHAR(32) NOT NULL,
+    account_type VARCHAR(16) NOT NULL,
+    amount_delta DECIMAL(10, 2) NOT NULL,
+    remarks TEXT NOT NULL,
+    balance_row_id INT NULL,
+    event_id INT NULL,
+    fine_type VARCHAR(50) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_adjustments_transaction (transaction_id),
+    INDEX idx_adjustments_student_account (student_id, account_type),
+    INDEX idx_adjustments_balance_row (balance_row_id),
+    INDEX idx_adjustments_fine_identity (student_id, event_id, fine_type)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS fine_payment_allocations (
     allocation_id INT AUTO_INCREMENT PRIMARY KEY,
     transaction_id INT NOT NULL,

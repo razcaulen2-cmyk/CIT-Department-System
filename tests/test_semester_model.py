@@ -66,7 +66,7 @@ class SemesterEnrollmentTests(unittest.TestCase):
                 self.queries.append((query, params))
 
             def fetchall(self):
-                return [(91, "0012", Decimal("60.00"))]
+                return [(91, "0012", Decimal("60.00"), Decimal("0.00"))]
 
         cursor = RepriceCursor()
         semester_model.reprice_semester_funds(cursor, 3, Decimal("120.00"))
@@ -74,6 +74,26 @@ class SemesterEnrollmentTests(unittest.TestCase):
         self.assertEqual(
             cursor.queries[-1][1],
             (Decimal("60.00"), Decimal("120.00"), 91),
+        )
+
+    def test_fund_reprice_preserves_manual_balance_adjustments(self):
+        class RepriceCursor:
+            def __init__(self):
+                self.queries = []
+
+            def execute(self, query, params=None):
+                self.queries.append((query, params))
+
+            def fetchall(self):
+                return [(91, "0012", Decimal("60.00"), Decimal("-20.00"))]
+
+        cursor = RepriceCursor()
+        semester_model.reprice_semester_funds(cursor, 3, Decimal("120.00"))
+
+        self.assertIn("transaction_adjustments", cursor.queries[0][0])
+        self.assertEqual(
+            cursor.queries[-1][1],
+            (Decimal("40.00"), Decimal("100.00"), 91),
         )
 
 

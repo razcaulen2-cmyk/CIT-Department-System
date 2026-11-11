@@ -5,10 +5,11 @@ from app_factory import create_app
 
 
 class PaymentsCursor:
-    def __init__(self):
+    def __init__(self, transactions=None):
         self.query = ""
         self.params = ()
         self.fetchall_count = 0
+        self.transactions = transactions or []
 
     def execute(self, query, params=None):
         self.query = query
@@ -22,15 +23,15 @@ class PaymentsCursor:
                 {"id": 12, "academic_year": "2026-2027", "semester": "2nd Semester"},
                 {"id": 13, "academic_year": "2025-2026", "semester": "Summer Class"},
             ]
-        return []
+        return self.transactions
 
     def close(self):
         pass
 
 
 class PaymentsConnection:
-    def __init__(self):
-        self.test_cursor = PaymentsCursor()
+    def __init__(self, transactions=None):
+        self.test_cursor = PaymentsCursor(transactions)
 
     def cursor(self, dictionary=False):
         return self.test_cursor
@@ -84,7 +85,7 @@ class PaymentsSemesterFilterTests(unittest.TestCase):
         self.assertIn("CONCAT(s.firstname, ' ', s.lastname) LIKE %s", self.connection.test_cursor.query)
         self.assertIn("t.payment_type LIKE %s", self.connection.test_cursor.query)
         self.assertIn("CAST(t.amount AS CHAR) LIKE %s", self.connection.test_cursor.query)
-        self.assertEqual(self.connection.test_cursor.params, ("%Gabriel%",) * 11)
+        self.assertEqual(self.connection.test_cursor.params, ("%Gabriel%",) * 12)
         self.assertLess(
             self.connection.test_cursor.query.index("CONCAT(s.firstname"),
             self.connection.test_cursor.query.index("LIMIT 50"),
@@ -100,13 +101,51 @@ class PaymentsSemesterFilterTests(unittest.TestCase):
         self.assertIn("t.semester_id=%s", self.connection.test_cursor.query)
         self.assertEqual(
             self.connection.test_cursor.params,
-            ("%Gabriel%",) * 11 + (
+            ("%Gabriel%",) * 12 + (
                 "2026-2027",
                 12,
                 "2026-2027",
                 "2nd Semester",
             ),
         )
+
+    def test_combined_payment_modal_separates_account_amounts_and_payment_types(self):
+        response = self.get_payments("/payments")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('value="Funds + Fines">Funds + Fines</option>', html)
+        self.assertIn('id="fundsPaymentType"', html)
+        self.assertIn('id="finesPaymentType"', html)
+        self.assertIn('id="fundsAmount"', html)
+        self.assertIn('id="finesAmount"', html)
+        self.assertIn('data-receipt-field="transactionDetails"', html        )
+
+    def test_adjustment_history_label_opens_remarks(self):
+        self.connection = PaymentsConnection([{
+            "id": 91,
+            "student_id": "000123",
+            "firstname": "Test",
+            "lastname": "Student",
+            "transaction_type": "Adjustment",
+            "payment_type": "Funds",
+            "amount": 20,
+            "academic_year": "2026-2027",
+            "semester": "2nd Semester",
+            "transaction_date": None,
+            "reversible": 0,
+            "adjustment_direction": "Decrease",
+            "adjustment_remarks": "Already paid before system launch.",
+        }])
+        response = self.get_payments("/payments")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('data-bs-target="#adjustmentRemarksModal"', html)
+        self.assertIn('data-adjustment-remarks="Already paid before system launch."', html)
+        self.assertIn("Funds", html)
+        self.assertIn("Decrease", html)
+        self.assertIn('id="adjustmentRemarksContent"', html)
 
 
 if __name__ == "__main__":

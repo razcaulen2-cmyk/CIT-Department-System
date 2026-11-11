@@ -3,39 +3,64 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$shortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'Department Fines Tracker.lnk'
+$taskName = 'Department Fines Tracker'
+$startupShortcut = Join-Path ([Environment]::GetFolderPath('Startup')) 'Department Fines Tracker.lnk'
 
 if ($Uninstall) {
-    if (Test-Path $shortcutPath) {
-        Remove-Item $shortcutPath
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task) {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
         Write-Host 'Removed Department Fines Tracker from startup.'
     } else {
-        Write-Host 'Department Fines Tracker is not configured to start automatically.'
+        Write-Host 'Department Fines Tracker is not configured as a startup task.'
+    }
+
+    if (Test-Path $startupShortcut) {
+        Remove-Item -LiteralPath $startupShortcut
     }
     exit 0
 }
 
 $projectRoot = $PSScriptRoot
 $appPath = Join-Path $projectRoot 'app.py'
+$pythonPath = Join-Path $projectRoot 'venv\Scripts\python.exe'
 $pythonwPath = Join-Path $projectRoot 'venv\Scripts\pythonw.exe'
+$launcherPath = Join-Path $projectRoot 'run_autostart.py'
 
-if (-not (Test-Path $appPath)) {
-    throw "app.py was not found in $projectRoot. Run this script from the project folder."
+foreach ($requiredPath in @($appPath, $pythonPath, $pythonwPath, $launcherPath)) {
+    if (-not (Test-Path $requiredPath)) {
+        throw "Required startup file was not found: $requiredPath"
+    }
 }
 
-if (-not (Test-Path $pythonwPath)) {
-    throw "The project virtual environment was not found at $pythonwPath. Set up the venv and install requirements first."
+$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+$action = New-ScheduledTaskAction `
+    -Execute $pythonwPath `
+    -Argument "`"$launcherPath`"" `
+    -WorkingDirectory $projectRoot
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
+$principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable
+
+Register-ScheduledTask `
+    -TaskName $taskName `
+    -Action $action `
+    -Trigger $trigger `
+    -Principal $principal `
+    -Settings $settings `
+    -Description 'Start the CIT Department System when this Windows user signs in.' `
+    -Force | Out-Null
+
+if (Test-Path $startupShortcut) {
+    Remove-Item -LiteralPath $startupShortcut
 }
 
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $pythonwPath
-$shortcut.Arguments = "`"$appPath`""
-$shortcut.WorkingDirectory = $projectRoot
-$shortcut.Description = 'Start the Department Fines Tracker when this user signs in.'
-$shortcut.Save()
-
-Write-Host 'Startup configured. The tracker will start when this Windows user signs in.'
+Write-Host 'Startup task configured. The tracker will start when this Windows user signs in.'
 Write-Host 'On this computer, open http://127.0.0.1:5000.'
 $lanAddress = Get-NetIPConfiguration |
     Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |

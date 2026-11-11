@@ -227,7 +227,13 @@ def reprice_semester_funds(cursor, semester_id, fund_amount):
     fund_amount = Decimal(str(fund_amount))
     cursor.execute(
         """
-        SELECT id, student_id, paid_amount
+        SELECT id, student_id, paid_amount,
+            COALESCE((
+                SELECT SUM(adjustment.amount_delta)
+                FROM transaction_adjustments adjustment
+                WHERE adjustment.account_type='Funds'
+                    AND adjustment.balance_row_id=student_funds.id
+            ), 0) AS balance_adjustment
         FROM student_funds
         WHERE semester_id=%s AND is_semester_fund=TRUE
         ORDER BY id
@@ -237,12 +243,16 @@ def reprice_semester_funds(cursor, semester_id, fund_amount):
     )
     for row in cursor.fetchall():
         paid = Decimal(str(row[2] or 0))
-        new_due = max(fund_amount - paid, Decimal("0.00"))
+        adjusted_assessment = max(
+            fund_amount + Decimal(str(row[3] or 0)),
+            Decimal("0.00"),
+        )
+        new_due = max(adjusted_assessment - paid, Decimal("0.00"))
         cursor.execute(
             """
             UPDATE student_funds
             SET amount_due=%s, assessed_amount=%s
             WHERE id=%s
             """,
-            (new_due, fund_amount, row[0]),
+            (new_due, adjusted_assessment, row[0]),
         )
