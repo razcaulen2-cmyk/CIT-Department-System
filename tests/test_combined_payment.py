@@ -20,7 +20,7 @@ class FakePaymentCursor:
 
     def fetchone(self):
         query = self.queries[-1][0]
-        if "FROM students WHERE student_id" in query:
+        if "FROM students" in query and "SELECT id, student_id, firstname, lastname" in query:
             return {
                 "id": 1,
                 "student_id": "000123",
@@ -113,7 +113,8 @@ class CombinedPaymentTests(unittest.TestCase):
         transaction_inserts = [
             params for query, params in cursor.queries if "INSERT INTO transactions" in query
         ]
-        self.assertEqual([params[2] for params in transaction_inserts], ["Funds", "Fines"])
+        self.assertEqual([params[3] for params in transaction_inserts], ["Funds", "Fines"])
+        self.assertTrue(all(params[:2] == (1, "000123") for params in transaction_inserts))
         self.assertEqual(
             sum("INSERT INTO transaction_balance_snapshots" in query for query, _ in cursor.queries),
             2,
@@ -152,6 +153,35 @@ class CombinedPaymentTests(unittest.TestCase):
         self.assertEqual(len(transactions), 1)
         self.assertEqual(transactions[0]["transaction_type"], "Funds")
         self.assertTrue(connection.committed)
+
+    def test_payment_uses_stable_key_when_it_is_provided(self):
+        cursor = FakePaymentCursor()
+        connection = FakePaymentConnection(cursor)
+        with patch("routes.admin.get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/api/process-payment",
+                json={
+                    "student_key": 1,
+                    "student_id": "000123",
+                    "transaction_type": "Funds",
+                    "payment_type": "Partial",
+                    "amount": "40.00",
+                    "semester_id": 7,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        student_lookup = next(
+            (query, params) for query, params in cursor.queries
+            if "FROM students" in query
+        )
+        self.assertIn("WHERE id=%s", student_lookup[0])
+        self.assertEqual(student_lookup[1], (1,))
+        transaction = next(
+            params for query, params in cursor.queries
+            if "INSERT INTO transactions" in query
+        )
+        self.assertEqual(transaction[:2], (1, "000123"))
 
 
 if __name__ == "__main__":

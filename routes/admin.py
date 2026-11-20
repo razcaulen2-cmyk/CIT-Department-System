@@ -237,8 +237,18 @@ def delete_student(id):
 
     if request.method == "POST":
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM students WHERE id=%s", (id,))
-        conn.commit()
+        try:
+            cursor.execute("DELETE FROM students WHERE id=%s", (id,))
+            conn.commit()
+        except mysql.connector.IntegrityError:
+            conn.rollback()
+            conn.close()
+            flash(
+                "This student has linked financial history and cannot be deleted. "
+                "Change their Student ID or mark them inactive instead.",
+                "danger",
+            )
+            return redirect("/students")
         conn.close()
         return redirect("/students")
 
@@ -299,7 +309,6 @@ def edit_student(id):
 @admin_bp.route("/map-rfid/<int:id>", methods=["GET", "POST"])
 @require_admin
 def map_rfid(id):
-    event_model.ensure_fine_payment_allocations()
     conn = get_db_connection()
     if request.method == "POST":
         conn.start_transaction()
@@ -338,65 +347,7 @@ def map_rfid(id):
             conn.close()
             return "Student ID is already assigned to another student.", 409
 
-        current_key = str(locked_student[1] or id)
-        source_keys = [current_key]
-        legacy_key = str(id)
-        if legacy_key not in source_keys:
-            cursor.execute(
-                """
-                SELECT id
-                FROM students
-                WHERE student_id=%s AND id<>%s
-                LIMIT 1
-                """,
-                (legacy_key, id),
-            )
-            if not cursor.fetchone():
-                source_keys.append(legacy_key)
-
-        for source_key in source_keys:
-            if source_key == rfid_value:
-                continue
-            cursor.execute(
-                """
-                SELECT source.fine_id
-                FROM fines AS source
-                JOIN fines AS destination
-                  ON destination.event_id = source.event_id
-                 AND destination.fine_type = source.fine_type
-                WHERE source.student_id=%s AND destination.student_id=%s
-                LIMIT 1
-                """,
-                (source_key, rfid_value),
-            )
-            if cursor.fetchone():
-                conn.rollback()
-                conn.close()
-                return (
-                    "Cannot remap this ID because both IDs have fines for the same event. "
-                    "Resolve the duplicate fine records first."
-                ), 409
-
-        for source_key in source_keys:
-            if source_key == rfid_value:
-                continue
-            cursor.execute(
-                "UPDATE student_funds SET student_id=%s WHERE student_id=%s",
-                (rfid_value, source_key),
-            )
-            cursor.execute(
-                "UPDATE fines SET student_id=%s WHERE student_id=%s",
-                (rfid_value, source_key),
-            )
-            cursor.execute(
-                "UPDATE fine_payment_allocations SET student_id=%s WHERE student_id=%s",
-                (rfid_value, source_key),
-            )
-            cursor.execute(
-                "UPDATE transactions SET student_id=%s WHERE student_id=%s",
-                (rfid_value, source_key),
-            )
-        if current_key != rfid_value:
+        if locked_student[1] != rfid_value:
             cursor.execute(
                 "UPDATE students SET student_id=%s WHERE id=%s",
                 (rfid_value, id),
@@ -774,11 +725,11 @@ def enroll_semester_student(semester_id, student_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT student_id FROM students WHERE id=%s",
+        "SELECT id, student_id FROM students WHERE id=%s",
         (student_id,),
     )
-    student_key = cursor.fetchone()
-    if not student_key:
+    student = cursor.fetchone()
+    if not student:
         conn.close()
         flash("Student not found.", "danger")
         return redirect(f"/academic-terms/{semester_id}/students")
@@ -826,13 +777,13 @@ def enroll_semester_student(semester_id, student_id):
     semester_model.enroll_student(
         cursor,
         semester_id,
-        student_id,
-        student_key[0] or str(student_id),
+        student[0],
+        student[1] or str(student[0]),
     )
     applied_amount = semester_model.apply_unallocated_fund_transactions(
         cursor,
         semester_id,
-        student_key[0] or str(student_id),
+        student[0],
     )
     conn.commit()
     conn.close()
@@ -934,13 +885,13 @@ def finance():
             (
                 SELECT COALESCE(SUM(sf.amount_due), 0)
                 FROM student_funds sf
-                WHERE sf.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+                WHERE sf.student_key = s.id
                 {funds_semester_filter}
             ) AS total_funds,
             (
                 SELECT COALESCE(SUM(f.amount), 0)
                 FROM fines f
-                WHERE f.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+                WHERE f.student_key = s.id
                 {fines_semester_filter}
             ) AS total_fines
         FROM students s
@@ -1007,12 +958,12 @@ def balance_report():
                 (
                     SELECT COALESCE(SUM(sf.amount_due), 0)
                     FROM student_funds sf
-                    WHERE sf.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+                    WHERE sf.student_key = s.id
                 ) AS total_funds,
                 (
                     SELECT COALESCE(SUM(f.amount), 0)
                     FROM fines f
-                    WHERE f.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+                    WHERE f.student_key = s.id
                 ) AS total_fines
             FROM students s
             WHERE s.status = 'Active'
@@ -1193,15 +1144,16 @@ def get_student_balance(student_id):
         conn.close()
         return {"error": "Student not found"}, 404
 
-    payment_key = student['student_id'] or str(student['id'])
+    student_key = student['id']
+    lookup_key = student['student_id'] or str(student_key)
     
     # Get total funds balance
     funds_query = """
         SELECT COALESCE(SUM(amount_due), 0) as total_funds
         FROM student_funds
-        WHERE student_id = %s
+        WHERE student_key = %s
     """
-    funds_params = [payment_key]
+    funds_params = [student_key]
     if selected_semester_id:
         funds_query += " AND semester_id=%s"
         funds_params.append(selected_semester_id)
@@ -1213,9 +1165,9 @@ def get_student_balance(student_id):
     fines_query = """
         SELECT COALESCE(SUM(amount), 0) as total_fines
         FROM fines
-        WHERE student_id = %s
+        WHERE student_key = %s
     """
-    fines_params = [payment_key]
+    fines_params = [student_key]
     if selected_semester_id:
         fines_query += " AND semester_id=%s"
         fines_params.append(selected_semester_id)
@@ -1228,7 +1180,9 @@ def get_student_balance(student_id):
     
     return {
         "student_id": student['student_id'],
-        "payment_key": payment_key,
+        "student_key": student_key,
+        "lookup_key": lookup_key,
+        "payment_key": lookup_key,
         "firstname": student['firstname'],
         "lastname": student['lastname'],
         "course": student['course'],
@@ -1348,7 +1302,7 @@ def payments():
                 WHERE adjustment.transaction_id=t.id
             ), '') AS adjustment_remarks
         FROM transactions t
-        JOIN students s ON t.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+        JOIN students s ON t.student_key = s.id
         LEFT JOIN transaction_balance_snapshots snapshot ON snapshot.transaction_id = t.id
     """
     filters = []
@@ -1361,6 +1315,7 @@ def payments():
                 OR s.lastname LIKE %s
                 OR CONCAT(s.firstname, ' ', s.lastname) LIKE %s
                 OR CAST(t.student_id AS CHAR) LIKE %s
+                OR CAST(s.student_id AS CHAR) LIKE %s
                 OR CAST(t.id AS CHAR) LIKE %s
                 OR t.transaction_type LIKE %s
                 OR EXISTS (
@@ -1376,7 +1331,7 @@ def payments():
                 OR CAST(t.transaction_date AS CHAR) LIKE %s
             )
         """)
-        params.extend([search_pattern] * 12)
+        params.extend([search_pattern] * 13)
     if selected_academic_year:
         filters.append("t.academic_year=%s")
         params.append(selected_academic_year)
@@ -1513,7 +1468,7 @@ def transaction_report():
                 t.transaction_date
             FROM transactions t
             LEFT JOIN students s
-                ON t.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
+                ON t.student_key = s.id
         """
         filters = []
         params = []
@@ -1767,26 +1722,39 @@ def upload_csv():
                     else:
                         student = matches[0]
                         matched_rows.append((
+                            student['id'],
                             student.get('student_id') or str(student['id']),
                             row['amount_due'],
                         ))
 
-                for student_key, amount_due in matched_rows:
+                for student_key, student_id_snapshot, amount_due in matched_rows:
                     if import_type == 'Funds':
                         cursor.execute(
                             """
-                            INSERT INTO student_funds (student_id, semester_id, fund_id, amount_due)
-                            VALUES (%s, %s, NULL, %s)
+                            INSERT INTO student_funds
+                                (student_key, student_id, semester_id, fund_id, amount_due)
+                            VALUES (%s, %s, %s, NULL, %s)
                             """,
-                            (student_key, active_term['id'], amount_due),
+                            (
+                                student_key,
+                                student_id_snapshot,
+                                active_term['id'],
+                                amount_due,
+                            ),
                         )
                     else:
                         cursor.execute(
                             """
-                            INSERT INTO fines (student_id, semester_id, event_id, fine_type, amount)
-                            VALUES (%s, %s, NULL, NULL, %s)
+                            INSERT INTO fines
+                                (student_key, student_id, semester_id, event_id, fine_type, amount)
+                            VALUES (%s, %s, %s, NULL, NULL, %s)
                             """,
-                            (student_key, active_term['id'], amount_due),
+                            (
+                                student_key,
+                                student_id_snapshot,
+                                active_term['id'],
+                                amount_due,
+                            ),
                         )
                 conn.commit()
                 imported_count = len(matched_rows)
@@ -1932,6 +1900,7 @@ def restore_database():
 def process_payment():
     data = request.get_json(silent=True) or {}
     student_id = data.get('student_id')
+    student_key_input = data.get('student_key')
     transaction_type = data.get('transaction_type')
     academic_year = data.get('academic_year')
     semester = data.get('semester')
@@ -1957,7 +1926,7 @@ def process_payment():
         }]
 
     # Validate input
-    if not student_id or (
+    if not (student_id or student_key_input) or (
         not semester_id and not all([academic_year, semester])
     ):
         return {"error": "Missing required fields"}, 400
@@ -1987,12 +1956,22 @@ def process_payment():
         ensure_transaction_balance_snapshots(cursor)
         conn.start_transaction()
 
-        cursor.execute(
-            "SELECT id, student_id, firstname, lastname FROM students WHERE student_id = %s",
-            (student_id,),
-        )
-        student = cursor.fetchone()
-        if not student:
+        if student_key_input is not None:
+            try:
+                student_key_input = int(student_key_input)
+            except (TypeError, ValueError):
+                conn.rollback()
+                return {"error": "Student not found"}, 404
+            cursor.execute(
+                """
+                SELECT id, student_id, firstname, lastname
+                FROM students
+                WHERE id=%s
+                """,
+                (student_key_input,),
+            )
+            student = cursor.fetchone()
+        else:
             cursor.execute(
                 """
                 SELECT id, student_id, firstname, lastname
@@ -2006,7 +1985,8 @@ def process_payment():
             conn.rollback()
             return {"error": "Student not found"}, 404
 
-        payment_key = student['student_id'] or str(student['id'])
+        student_key = student['id']
+        student_id_snapshot = student['student_id'] or str(student_key)
 
         if semester_id:
             cursor.execute(
@@ -2048,11 +2028,11 @@ def process_payment():
                     """
                     SELECT id, amount_due, paid_amount
                     FROM student_funds
-                    WHERE student_id = %s AND semester_id=%s AND amount_due > 0
+                    WHERE student_key = %s AND semester_id=%s AND amount_due > 0
                     ORDER BY amount_due ASC, id ASC
                     FOR UPDATE
                     """,
-                    (payment_key, semester_id),
+                    (student_key, semester_id),
                 )
                 balance_rows = cursor.fetchall()
             else:
@@ -2060,11 +2040,11 @@ def process_payment():
                     """
                     SELECT fine_id, event_id, fine_type, amount
                     FROM fines
-                    WHERE student_id = %s AND semester_id=%s AND amount > 0
+                    WHERE student_key = %s AND semester_id=%s AND amount > 0
                     ORDER BY event_id, fine_id
                     FOR UPDATE
                     """,
-                    (payment_key, semester_id),
+                    (student_key, semester_id),
                 )
                 balance_rows = cursor.fetchall()
 
@@ -2088,11 +2068,13 @@ def process_payment():
             cursor.execute(
                 """
                 INSERT INTO transactions
-                    (student_id, semester_id, transaction_type, payment_type, amount, academic_year, semester, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (student_key, student_id, semester_id, transaction_type, payment_type,
+                     amount, academic_year, semester, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    payment_key,
+                    student_key,
+                    student_id_snapshot,
                     semester_id,
                     component_type,
                     payment_type,
@@ -2127,9 +2109,9 @@ def process_payment():
                         """
                         UPDATE student_funds
                         SET amount_due = %s, paid_amount = paid_amount + %s
-                        WHERE id = %s AND student_id = %s
+                        WHERE id = %s AND student_key = %s
                         """,
-                        (after_amount, deduct, row_id, payment_key),
+                        (after_amount, deduct, row_id, student_key),
                     )
                     balance_snapshot.append({
                         'row_id': row_id,
@@ -2138,19 +2120,21 @@ def process_payment():
                     })
                 else:
                     cursor.execute(
-                        "UPDATE fines SET amount = %s WHERE fine_id = %s AND student_id = %s",
-                        (after_amount, row_id, payment_key),
+                        "UPDATE fines SET amount = %s WHERE fine_id = %s AND student_key = %s",
+                        (after_amount, row_id, student_key),
                     )
                     cursor.execute(
                         """
                         INSERT INTO fine_payment_allocations
-                            (transaction_id, source_fine_id, student_id, event_id, fine_type, amount_paid)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                            (transaction_id, source_fine_id, student_key, student_id,
+                             event_id, fine_type, amount_paid)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             transaction_no,
                             row_id,
-                            payment_key,
+                            student_key,
+                            student_id_snapshot,
                             row['event_id'],
                             row['fine_type'],
                             deduct,
@@ -2277,7 +2261,8 @@ def adjust_balance():
             conn.rollback()
             return jsonify({"error": "Student not found."}), 404
 
-        student_key = student["student_id"] or str(student["id"])
+        student_key = student["id"]
+        student_id_snapshot = student["student_id"] or str(student_key)
         cursor.execute(
             """
             SELECT id, academic_year, semester
@@ -2297,7 +2282,7 @@ def adjust_balance():
                 """
                 SELECT id, amount_due, assessed_amount, paid_amount, is_semester_fund
                 FROM student_funds
-                WHERE student_id=%s AND semester_id=%s
+                WHERE student_key=%s AND semester_id=%s
                 ORDER BY is_semester_fund DESC, id
                 FOR UPDATE
                 """,
@@ -2313,7 +2298,7 @@ def adjust_balance():
                 """
                 SELECT fine_id, event_id, fine_type, amount, assessed_amount
                 FROM fines
-                WHERE student_id=%s AND semester_id=%s
+                WHERE student_key=%s AND semester_id=%s
                 ORDER BY event_id, fine_id
                 FOR UPDATE
                 """,
@@ -2339,12 +2324,13 @@ def adjust_balance():
         cursor.execute(
             """
             INSERT INTO transactions
-                (student_id, semester_id, transaction_type, payment_type, amount,
-                 academic_year, semester, created_by)
-            VALUES (%s, %s, 'Adjustment', %s, %s, %s, %s, %s)
+                (student_key, student_id, semester_id, transaction_type, payment_type,
+                 amount, academic_year, semester, created_by)
+            VALUES (%s, %s, %s, 'Adjustment', %s, %s, %s, %s, %s)
             """,
             (
                 student_key,
+                student_id_snapshot,
                 semester_id,
                 account_type,
                 amount,
@@ -2374,7 +2360,7 @@ def adjust_balance():
                         """
                         UPDATE student_funds
                         SET amount_due=%s, assessed_amount=%s
-                        WHERE id=%s AND student_id=%s
+                        WHERE id=%s AND student_key=%s
                         """,
                         (current_due + amount, current_assessed + amount, row_id, student_key),
                     )
@@ -2382,11 +2368,17 @@ def adjust_balance():
                     cursor.execute(
                         """
                         INSERT INTO student_funds
-                            (student_id, semester_id, fund_id, amount_due, assessed_amount,
-                             paid_amount, is_semester_fund, description)
-                        VALUES (%s, %s, NULL, %s, %s, 0, FALSE, 'Balance adjustment')
+                            (student_key, student_id, semester_id, fund_id, amount_due,
+                             assessed_amount, paid_amount, is_semester_fund, description)
+                        VALUES (%s, %s, %s, NULL, %s, %s, 0, FALSE, 'Balance adjustment')
                         """,
-                        (student_key, semester_id, amount, amount),
+                        (
+                            student_key,
+                            student_id_snapshot,
+                            semester_id,
+                            amount,
+                            amount,
+                        ),
                     )
                     row_id = cursor.lastrowid
                 balance_changes.append({
@@ -2408,7 +2400,7 @@ def adjust_balance():
                     """
                     UPDATE fines
                     SET amount=%s, assessed_amount=%s
-                    WHERE fine_id=%s AND student_id=%s
+                    WHERE fine_id=%s AND student_key=%s
                     """,
                     (current_due + amount, current_assessed + amount, row_id, student_key),
                 )
@@ -2438,7 +2430,7 @@ def adjust_balance():
                         """
                         UPDATE student_funds
                         SET amount_due=%s, assessed_amount=%s
-                        WHERE id=%s AND student_id=%s
+                        WHERE id=%s AND student_key=%s
                         """,
                         (due - deducted, assessed - deducted, row_id, student_key),
                     )
@@ -2454,7 +2446,7 @@ def adjust_balance():
                         """
                         UPDATE fines
                         SET amount=%s, assessed_amount=%s
-                        WHERE fine_id=%s AND student_id=%s
+                        WHERE fine_id=%s AND student_key=%s
                         """,
                         (due - deducted, assessed - deducted, row_id, student_key),
                     )
@@ -2472,13 +2464,14 @@ def adjust_balance():
             cursor.execute(
                 """
                 INSERT INTO transaction_adjustments
-                    (transaction_id, student_id, account_type, amount_delta, remarks,
-                     balance_row_id, event_id, fine_type)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (transaction_id, student_key, student_id, account_type, amount_delta,
+                     remarks, balance_row_id, event_id, fine_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     transaction_id,
                     student_key,
+                    student_id_snapshot,
                     account_type,
                     change["amount_delta"],
                     remarks,
@@ -2538,7 +2531,7 @@ def delete_transaction(transaction_id):
         conn.start_transaction()
         cursor.execute(
             """
-            SELECT id, student_id, transaction_type
+            SELECT id, student_key, student_id, transaction_type
             FROM transactions
             WHERE id = %s
             FOR UPDATE
@@ -2573,12 +2566,12 @@ def delete_transaction(transaction_id):
             """
             SELECT id
             FROM transactions
-            WHERE student_id = %s AND transaction_type = %s AND id > %s
+            WHERE student_key = %s AND transaction_type = %s AND id > %s
             ORDER BY id
             LIMIT 1
             FOR UPDATE
             """,
-            (transaction['student_id'], transaction['transaction_type'], transaction_id),
+            (transaction['student_key'], transaction['transaction_type'], transaction_id),
         )
         if cursor.fetchone():
             conn.rollback()
@@ -2601,10 +2594,10 @@ def delete_transaction(transaction_id):
                 f"""
                 SELECT {amount_column} AS current_amount
                 FROM {table}
-                WHERE {key_column} = %s AND student_id = %s
+                WHERE {key_column} = %s AND student_key = %s
                 FOR UPDATE
                 """,
-                (item['row_id'], transaction['student_id']),
+                (item['row_id'], transaction['student_key']),
             )
             balance_row = cursor.fetchone()
             if not balance_row:
@@ -2632,13 +2625,13 @@ def delete_transaction(transaction_id):
                     UPDATE student_funds
                     SET amount_due=%s,
                         paid_amount=GREATEST(paid_amount-%s, 0)
-                    WHERE id=%s AND student_id=%s
+                    WHERE id=%s AND student_key=%s
                     """,
                     (
                         item['before'],
                         paid_for_transaction,
                         item['row_id'],
-                        transaction['student_id'],
+                        transaction['student_key'],
                     ),
                 )
             else:
@@ -2646,9 +2639,9 @@ def delete_transaction(transaction_id):
                     f"""
                     UPDATE {table}
                     SET {amount_column} = %s
-                    WHERE {key_column} = %s AND student_id = %s
+                    WHERE {key_column} = %s AND student_key = %s
                     """,
-                    (item['before'], item['row_id'], transaction['student_id']),
+                    (item['before'], item['row_id'], transaction['student_key']),
                 )
 
         cursor.execute(

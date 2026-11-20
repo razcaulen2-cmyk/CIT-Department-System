@@ -15,11 +15,13 @@ class FakeCursor:
         dictionary=False,
         allocated_paid=Decimal("0.00"),
         manual_adjustment=Decimal("0.00"),
+        duplicate_fines=False,
     ):
         self.existing_fine = existing_fine
         self.dictionary = dictionary
         self.allocated_paid = allocated_paid
         self.manual_adjustment = manual_adjustment
+        self.duplicate_fines = duplicate_fines
         self.queries = []
 
     def execute(self, query, params=None):
@@ -29,6 +31,8 @@ class FakeCursor:
 
     def fetchone(self):
         query = self.queries[-1][0]
+        if "GROUP BY fine_type" in query and self.duplicate_fines:
+            return ("Absent",)
         if "FROM fines" in query and "SELECT fine_id, amount, assessed_amount" in query:
             return self.existing_fine
         if "SUM(amount_paid)" in query:
@@ -38,6 +42,16 @@ class FakeCursor:
         if "FROM students WHERE id=%s" in query and "FOR UPDATE" in query:
             return (1, "000123")
         return None
+
+    def fetchall(self):
+        query = self.queries[-1][0]
+        if "FROM fines" in query and "SELECT fine_id, amount, assessed_amount" in query:
+            if self.existing_fine is None:
+                return []
+            if self.duplicate_fines:
+                return [self.existing_fine, self.existing_fine]
+            return [self.existing_fine]
+        return []
 
     def close(self):
         pass
@@ -75,12 +89,40 @@ class FakeConnection:
 
 
 class FineAssessmentTests(unittest.TestCase):
+    def test_resync_skips_legacy_duplicate_fines(self):
+        cursor = FakeCursor(
+            (17, Decimal("50.00"), Decimal("100.00")),
+            duplicate_fines=True,
+        )
+        connection = FakeConnection([cursor])
+
+        with patch.object(event_model, "get_db_connection", return_value=connection):
+            event_model.create_or_update_fine(1, 4, "Absent", 100, "000123")
+
+        self.assertTrue(connection.rolled_back)
+        self.assertTrue(connection.closed)
+        self.assertFalse(any(
+            query.startswith(("UPDATE fines", "INSERT INTO fines"))
+            for query, _ in cursor.queries
+        ))
+
+    def test_removal_skips_legacy_duplicate_fines(self):
+        cursor = FakeCursor(duplicate_fines=True)
+        connection = FakeConnection([cursor])
+
+        with patch.object(event_model, "get_db_connection", return_value=connection):
+            event_model.remove_event_fine(1, 4, "Absent")
+
+        self.assertTrue(connection.rolled_back)
+        self.assertTrue(connection.closed)
+        self.assertFalse(any(query.startswith("DELETE FROM fines") for query, _ in cursor.queries))
+
     def test_resync_preserves_paid_part_of_fine(self):
         cursor = FakeCursor((17, Decimal("50.00"), Decimal("100.00")))
         connection = FakeConnection([cursor])
 
         with patch.object(event_model, "get_db_connection", return_value=connection):
-            event_model.create_or_update_fine("000123", 4, "Absent", 100)
+            event_model.create_or_update_fine(1, 4, "Absent", 100, "000123")
 
         self.assertEqual(
             cursor.queries[-1][1],
@@ -93,7 +135,7 @@ class FineAssessmentTests(unittest.TestCase):
         connection = FakeConnection([cursor])
 
         with patch.object(event_model, "get_db_connection", return_value=connection):
-            event_model.create_or_update_fine("000123", 4, "Absent", 120)
+            event_model.create_or_update_fine(1, 4, "Absent", 120, "000123")
 
         self.assertEqual(
             cursor.queries[-1][1],
@@ -105,12 +147,12 @@ class FineAssessmentTests(unittest.TestCase):
         connection = FakeConnection([cursor])
 
         with patch.object(event_model, "get_db_connection", return_value=connection):
-            event_model.create_or_update_fine("000123", 4, "Absent", 25)
+            event_model.create_or_update_fine(1, 4, "Absent", 25, "000123")
 
         self.assertIn("INSERT INTO fines", cursor.queries[-1][0])
         self.assertEqual(
             cursor.queries[-1][1],
-            ("000123", 4, "Absent", Decimal("0.00"), Decimal("25.00"), 4),
+            (1, "000123", 4, "Absent", Decimal("0.00"), Decimal("25.00"), 4),
         )
 
     def test_resync_preserves_balance_adjustment(self):
@@ -121,7 +163,7 @@ class FineAssessmentTests(unittest.TestCase):
         connection = FakeConnection([cursor])
 
         with patch.object(event_model, "get_db_connection", return_value=connection):
-            event_model.create_or_update_fine("000123", 4, "Absent", 120)
+            event_model.create_or_update_fine(1, 4, "Absent", 120, "000123")
 
         self.assertEqual(
             cursor.queries[-1][1],
@@ -130,7 +172,7 @@ class FineAssessmentTests(unittest.TestCase):
 
 
 class StudentIdRemappingTests(unittest.TestCase):
-    def test_remapping_moves_financial_rows_to_new_student_id(self):
+    def test_remapping_changes_only_the_student_identifier(self):
         read_cursor = FakeCursor(dictionary=True)
         read_cursor.fetchone = lambda: {
             "id": 1,
@@ -150,32 +192,22 @@ class StudentIdRemappingTests(unittest.TestCase):
 
         with client.session_transaction() as session:
             session["admin"] = 1
-        with patch.object(event_model, "ensure_fine_payment_allocations"):
-            with patch.object(admin_module, "get_db_connection", return_value=connection):
-                response = client.post("/map-rfid/1", data={"student_id": "000456"})
+        with patch.object(admin_module, "get_db_connection", return_value=connection):
+            response = client.post("/map-rfid/1", data={"student_id": "000456"})
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(connection.committed)
         self.assertTrue(connection.transaction_started)
-        ledger_updates = [
-            (query.split("UPDATE ", 1)[1].split(" SET", 1)[0], params)
+        student_update = [
+            params
             for query, params in write_cursor.queries
-            if query.startswith("UPDATE ")
-            and "student_id=%s WHERE student_id=%s" in query
+            if query.startswith("UPDATE students")
         ]
-        self.assertEqual(
-            ledger_updates,
-            [
-                ("student_funds", ("000456", "000123")),
-                ("fines", ("000456", "000123")),
-                ("fine_payment_allocations", ("000456", "000123")),
-                ("transactions", ("000456", "000123")),
-                ("student_funds", ("000456", "1")),
-                ("fines", ("000456", "1")),
-                ("fine_payment_allocations", ("000456", "1")),
-                ("transactions", ("000456", "1")),
-            ],
-        )
+        self.assertEqual(student_update, [("000456", 1)])
+        self.assertFalse(any(
+            query.startswith(("UPDATE student_funds", "UPDATE fines", "UPDATE transactions"))
+            for query, _ in write_cursor.queries
+        ))
 
 
 if __name__ == "__main__":

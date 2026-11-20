@@ -40,7 +40,7 @@ class SemesterEnrollmentTests(unittest.TestCase):
         self.assertIn("INSERT INTO student_funds", cursor.queries[-1][0])
         self.assertEqual(
             cursor.queries[-1][1],
-            ("0012", 3, Decimal("75.00"), Decimal("75.00")),
+            (12, "0012", 3, Decimal("75.00"), Decimal("75.00")),
         )
 
     def test_legacy_enrollment_can_skip_fund_charge(self):
@@ -124,7 +124,7 @@ class UnallocatedFundTransactionTests(unittest.TestCase):
         applied = semester_model.apply_unallocated_fund_transactions(
             cursor,
             2,
-            "0012",
+            12,
         )
 
         fund_updates = [
@@ -137,8 +137,8 @@ class UnallocatedFundTransactionTests(unittest.TestCase):
         ]
         self.assertEqual(applied, Decimal("500.00"))
         self.assertEqual(fund_updates, [
-            (Decimal("200.00"), Decimal("300.00"), 91, "0012"),
-            (Decimal("0.00"), Decimal("200.00"), 91, "0012"),
+            (Decimal("200.00"), Decimal("300.00"), 91, 12),
+            (Decimal("0.00"), Decimal("200.00"), 91, 12),
         ])
         self.assertEqual(
             [json.loads(snapshot) for snapshot, _ in snapshot_updates],
@@ -157,7 +157,7 @@ class UnallocatedFundTransactionTests(unittest.TestCase):
         applied = semester_model.apply_unallocated_fund_transactions(
             cursor,
             2,
-            "0012",
+            12,
             transaction_ids=[101],
         )
 
@@ -167,7 +167,7 @@ class UnallocatedFundTransactionTests(unittest.TestCase):
         )
         self.assertEqual(applied, Decimal("125.00"))
         self.assertIn("t.id IN (%s)", transaction_query)
-        self.assertEqual(params, ("0012", 2, 101))
+        self.assertEqual(params, (12, 2, 101))
 
     def test_no_outstanding_semester_fund_skips_unallocated_payments(self):
         cursor = self.ReconciliationCursor([], [(101, Decimal("300.00"))])
@@ -175,7 +175,7 @@ class UnallocatedFundTransactionTests(unittest.TestCase):
         applied = semester_model.apply_unallocated_fund_transactions(
             cursor,
             2,
-            "0012",
+            12,
         )
 
         self.assertEqual(applied, Decimal("0.00"))
@@ -216,7 +216,7 @@ class EventSemesterEligibilityTests(unittest.TestCase):
                                             with patch.object(event_model, "remove_event_fine") as remove_fine:
                                                 event_model.sync_fines_for_event(event)
 
-        assess_fine.assert_called_once_with("0012", 4, "Absent", 25.0)
+        assess_fine.assert_called_once_with(12, 4, "Absent", 25.0, "0012")
         remove_fine.assert_not_called()
 
 

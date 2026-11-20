@@ -8,6 +8,12 @@ A department fines and funds tracker for the CIT department
 
 The schema creates an empty database. Add an administrator and application data through your normal setup process; no demo or production records are included.
 
+### Existing database: immutable student keys
+
+Before deploying the immutable student-key changes, take and verify a full database backup and stop users from processing payments. Run `.\\venv\\Scripts\\python.exe tools\\migrate_student_keys.py --dry-run` to check for legacy finance rows that cannot be matched safely. The migration maps an old numeric value to the same `students.id` when no current Student ID matches. Fine rows with no matching student are preserved in `unresolved_student_fines` for later review; ambiguous IDs, unmapped rows in other financial tables, and duplicate fines stop the migration. Then run `.\\venv\\Scripts\\python.exe tools\\migrate_student_keys.py`; it creates and verifies table-level safety copies, backfills the finance records, and adds the key indexes and foreign keys.
+
+Deploy or restart the application only after the migration completes successfully. Financial history is linked by the immutable student key after migration; the prior `student_id` value is retained on financial records as a historical snapshot. Remapping a student's current Student ID then updates only the student record, and cannot change or orphan their attendance or finance history. Review archived rows and assign them only after their owner is confirmed.
+
 ### Office LAN access on Windows
 
 The application listens on all network interfaces on port `5000`. On the office desktop, set up the project, its `.env` file, database, and `venv` first. To start it automatically when the current Windows user signs in, run this from the project folder in PowerShell:

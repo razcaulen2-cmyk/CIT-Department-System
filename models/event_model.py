@@ -1,9 +1,13 @@
 import json
+import logging
 
 from config import get_db_connection
 from models import attendance_model, semester_model, student_model, transaction_model
 from datetime import datetime, date, timedelta, time
 from decimal import Decimal
+
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_event_columns():
@@ -87,13 +91,16 @@ def ensure_fine_payment_allocations():
 				allocation_id INT AUTO_INCREMENT PRIMARY KEY,
 				transaction_id INT NOT NULL,
 				source_fine_id INT NOT NULL,
+				student_key INT NOT NULL,
 				student_id VARCHAR(32) NOT NULL,
 				event_id INT NOT NULL,
 				fine_type VARCHAR(50) NOT NULL,
 				amount_paid DECIMAL(10,2) NOT NULL,
 				UNIQUE KEY uq_fine_payment_source (transaction_id, source_fine_id),
-				INDEX idx_fine_payment_identity (student_id, event_id, fine_type)
-			)
+				INDEX idx_fine_payment_identity (student_key, event_id, fine_type),
+				CONSTRAINT fk_fine_payment_student_key
+					FOREIGN KEY (student_key) REFERENCES students(id)
+			) ENGINE=InnoDB
 			"""
 		)
 		cursor.execute(
@@ -107,7 +114,7 @@ def ensure_fine_payment_allocations():
 		if cursor.fetchone()['table_count']:
 			cursor.execute(
 				"""
-				SELECT t.id, t.student_id, snapshot.snapshot
+				SELECT t.id, t.student_key, t.student_id, snapshot.snapshot
 				FROM transactions t
 				JOIN transaction_balance_snapshots snapshot
 					ON snapshot.transaction_id = t.id
@@ -129,9 +136,9 @@ def ensure_fine_payment_allocations():
 						"""
 						SELECT event_id, fine_type
 						FROM fines
-						WHERE fine_id = %s AND student_id = %s
+						WHERE fine_id = %s AND student_key = %s
 						""",
-						(item['row_id'], transaction['student_id']),
+						(item['row_id'], transaction['student_key']),
 					)
 					fine = cursor.fetchone()
 					if not fine:
@@ -139,12 +146,14 @@ def ensure_fine_payment_allocations():
 					cursor.execute(
 						"""
 						INSERT IGNORE INTO fine_payment_allocations
-							(transaction_id, source_fine_id, student_id, event_id, fine_type, amount_paid)
-						VALUES (%s, %s, %s, %s, %s, %s)
+							(transaction_id, source_fine_id, student_key, student_id,
+							 event_id, fine_type, amount_paid)
+						VALUES (%s, %s, %s, %s, %s, %s, %s)
 						""",
 						(
 							transaction['id'],
 							item['row_id'],
+							transaction['student_key'],
 							transaction['student_id'],
 							fine['event_id'],
 							fine['fine_type'],
@@ -575,7 +584,13 @@ def delete_event(event_id):
 	conn.close()
 
 
-def create_or_update_fine(student_id, event_id, fine_type, amount):
+def create_or_update_fine(
+	student_key,
+	event_id,
+	fine_type,
+	amount,
+	student_id_snapshot=None,
+):
 	conn = get_db_connection()
 	cursor = conn.cursor()
 	transaction_model.ensure_transaction_adjustments(cursor)
@@ -583,31 +598,44 @@ def create_or_update_fine(student_id, event_id, fine_type, amount):
 		"""
 		SELECT fine_id, amount, assessed_amount
 		FROM fines
-		WHERE student_id=%s AND event_id=%s AND fine_type=%s
-		LIMIT 1
+		WHERE student_key=%s AND event_id=%s AND fine_type=%s
 		FOR UPDATE
 		""",
-		(student_id, event_id, fine_type),
+		(student_key, event_id, fine_type),
 	)
-	fine = cursor.fetchone()
+	fines = cursor.fetchall()
+	if len(fines) > 1:
+		logger.warning(
+			"Skipping fine resync for student key %s, event %s, type %s: "
+			"%s legacy fine rows share this identity.",
+			student_key,
+			event_id,
+			fine_type,
+			len(fines),
+		)
+		conn.rollback()
+		cursor.close()
+		conn.close()
+		return
+	fine = fines[0] if fines else None
 	assessed_amount = Decimal(str(amount)).quantize(Decimal('0.01'))
 	cursor.execute(
 		"""
 		SELECT COALESCE(SUM(amount_paid), 0)
 		FROM fine_payment_allocations
-		WHERE student_id=%s AND event_id=%s AND fine_type=%s
+		WHERE student_key=%s AND event_id=%s AND fine_type=%s
 		""",
-		(student_id, event_id, fine_type),
+		(student_key, event_id, fine_type),
 	)
 	allocated_paid = Decimal(str(cursor.fetchone()[0] or 0))
 	cursor.execute(
 		"""
 		SELECT COALESCE(SUM(amount_delta), 0)
 		FROM transaction_adjustments
-		WHERE student_id=%s AND account_type='Fines'
+		WHERE student_key=%s AND account_type='Fines'
 		  AND event_id=%s AND fine_type=%s
 		""",
-		(student_id, event_id, fine_type),
+		(student_key, event_id, fine_type),
 	)
 	manual_adjustment = Decimal(str(cursor.fetchone()[0] or 0))
 	adjusted_assessment = assessed_amount + manual_adjustment
@@ -638,43 +666,71 @@ def create_or_update_fine(student_id, event_id, fine_type, amount):
 		cursor.execute(
 			"""
 			INSERT INTO fines
-				(student_id, semester_id, event_id, fine_type, amount, assessed_amount)
-			SELECT %s, semester_id, %s, %s, %s, %s
+				(student_key, student_id, semester_id, event_id, fine_type, amount, assessed_amount)
+			SELECT %s, %s, semester_id, %s, %s, %s, %s
 			FROM events
 			WHERE event_id=%s
 			""",
-			(student_id, event_id, fine_type, amount_due, adjusted_assessment, event_id),
+			(
+				student_key,
+				student_id_snapshot or str(student_key),
+				event_id,
+				fine_type,
+				amount_due,
+				adjusted_assessment,
+				event_id,
+			),
 		)
 	conn.commit()
 	cursor.close()
 	conn.close()
 
 
-def remove_event_fine(student_id, event_id, fine_type=None):
+def remove_event_fine(student_key, event_id, fine_type=None):
 	conn = get_db_connection()
 	cursor = conn.cursor()
+	duplicate_filter = "AND fine_type=%s" if fine_type else ""
+	params = (student_key, event_id, fine_type) if fine_type else (student_key, event_id)
+	cursor.execute(
+		f"""
+		SELECT fine_type
+		FROM fines
+		WHERE student_key=%s AND event_id=%s {duplicate_filter}
+		GROUP BY fine_type
+		HAVING COUNT(*) > 1
+		LIMIT 1
+		""",
+		params,
+	)
+	if cursor.fetchone():
+		logger.warning(
+			"Skipping fine removal for student key %s, event %s: "
+			"duplicate legacy fine rows require reconciliation.",
+			student_key,
+			event_id,
+		)
+		conn.rollback()
+		cursor.close()
+		conn.close()
+		return
 	if fine_type:
 		cursor.execute(
-			"DELETE FROM fines WHERE student_id=%s AND event_id=%s AND fine_type=%s",
-			(student_id, event_id, fine_type),
+			"DELETE FROM fines WHERE student_key=%s AND event_id=%s AND fine_type=%s",
+			(student_key, event_id, fine_type),
 		)
 	else:
 		cursor.execute(
-			"DELETE FROM fines WHERE student_id=%s AND event_id=%s",
-			(student_id, event_id),
+			"DELETE FROM fines WHERE student_key=%s AND event_id=%s",
+			(student_key, event_id),
 		)
 	conn.commit()
 	conn.close()
 
 
 def remove_fines_for_student_record(student, event_id):
-	student_ids = {
-		student.get('id'),
-		student.get('student_id'),
-	}
-	for student_id in student_ids:
-		if student_id is not None:
-			remove_event_fine(student_id, event_id)
+	student_key = student.get('id')
+	if student_key is not None:
+		remove_event_fine(student_key, event_id)
 
 
 def clear_fines_for_event(event_id):
@@ -762,7 +818,13 @@ def sync_fines_for_event(event):
 			elif student.get('id') in paper_attendance:
 				remove_fines_for_student_record(student, event['id'])
 				if paper_attendance[student['id']] == 'late':
-					create_or_update_fine(student.get('student_id') or student.get('id'), event['id'], 'Late', float(event.get('late_fine') or 0))
+					create_or_update_fine(
+						student['id'],
+						event['id'],
+						'Late',
+						float(event.get('late_fine') or 0),
+						student.get('student_id') or str(student['id']),
+					)
 		return
 
 	attendance_records = attendance_model.get_attendance_by_event(event['id'])
@@ -774,14 +836,21 @@ def sync_fines_for_event(event):
 	has_logout_window = bool(event.get('logout_time') or event.get('logout_cutoff_time'))
 
 	for student in students:
-		student_id = student.get('student_id') or student.get('id')
+		student_key = student['id']
+		student_id_snapshot = student.get('student_id') or str(student_key)
 		if student.get('id') in exempted_student_ids:
 			remove_fines_for_student_record(student, event['id'])
 			continue
 		if student.get('id') in paper_attendance:
 			remove_fines_for_student_record(student, event['id'])
 			if paper_attendance[student['id']] == 'late':
-				create_or_update_fine(student_id, event['id'], 'Late', float(event.get('late_fine') or 0))
+				create_or_update_fine(
+					student_key,
+					event['id'],
+					'Late',
+					float(event.get('late_fine') or 0),
+					student_id_snapshot,
+				)
 			continue
 		student_records = attendance_by_student.get(student.get('id'), [])
 		login_record = next((r for r in student_records if r['status'] == 'login'), None)
@@ -791,32 +860,32 @@ def sync_fines_for_event(event):
 		if has_login_window and not has_logout_window:
 			if login_record:
 				# Has login → Present (remove fines)
-				remove_event_fine(student_id, event['id'])
+				remove_event_fine(student_key, event['id'])
 			elif logout_record and not login_record:
 				# Has logout but no login → Late (for one-time special events)
-				create_or_update_fine(student_id, event['id'], 'Late', float(event.get('late_fine') or 0))
-				remove_event_fine(student_id, event['id'], 'Absent')
+				create_or_update_fine(student_key, event['id'], 'Late', float(event.get('late_fine') or 0), student_id_snapshot)
+				remove_event_fine(student_key, event['id'], 'Absent')
 			else:
 				# No login and no logout → Absent
-				create_or_update_fine(student_id, event['id'], 'Absent', float(event.get('absent_fine') or 0))
-				remove_event_fine(student_id, event['id'], 'Late')
+				create_or_update_fine(student_key, event['id'], 'Absent', float(event.get('absent_fine') or 0), student_id_snapshot)
+				remove_event_fine(student_key, event['id'], 'Late')
 		elif has_logout_window and not has_login_window:
 			if logout_record:
-				remove_event_fine(student_id, event['id'])
+				remove_event_fine(student_key, event['id'])
 			else:
-				create_or_update_fine(student_id, event['id'], 'Absent', float(event.get('absent_fine') or 0))
+				create_or_update_fine(student_key, event['id'], 'Absent', float(event.get('absent_fine') or 0), student_id_snapshot)
 		else:
 			# Both windows present: keep existing semantics
 			if logout_record and not login_record:
-				create_or_update_fine(student_id, event['id'], 'Late', float(event.get('late_fine') or 0))
-				remove_event_fine(student_id, event['id'], 'Absent')
+				create_or_update_fine(student_key, event['id'], 'Late', float(event.get('late_fine') or 0), student_id_snapshot)
+				remove_event_fine(student_key, event['id'], 'Absent')
 			elif login_record and not logout_record:
-				create_or_update_fine(student_id, event['id'], 'Absent', float(event.get('absent_fine') or 0))
-				remove_event_fine(student_id, event['id'], 'Late')
+				create_or_update_fine(student_key, event['id'], 'Absent', float(event.get('absent_fine') or 0), student_id_snapshot)
+				remove_event_fine(student_key, event['id'], 'Late')
 			elif not login_record and not logout_record:
-				create_or_update_fine(student_id, event['id'], 'Absent', float(event.get('absent_fine') or 0))
+				create_or_update_fine(student_key, event['id'], 'Absent', float(event.get('absent_fine') or 0), student_id_snapshot)
 			else:
-				remove_event_fine(student_id, event['id'])
+				remove_event_fine(student_key, event['id'])
 
 
 def sync_all_closed_event_fines():

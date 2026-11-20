@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE TABLE IF NOT EXISTS student_funds (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    student_key INT NOT NULL,
     student_id VARCHAR(32) NOT NULL,
     semester_id INT NULL,
     fund_id INT NULL,
@@ -68,12 +69,16 @@ CREATE TABLE IF NOT EXISTS student_funds (
     is_semester_fund BOOLEAN NOT NULL DEFAULT FALSE,
     description VARCHAR(255) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_student_funds_student_key (student_key),
     INDEX idx_student_funds_student (student_id),
-    INDEX idx_student_funds_semester (semester_id)
+    INDEX idx_student_funds_semester (semester_id),
+    CONSTRAINT fk_student_funds_student_key
+        FOREIGN KEY (student_key) REFERENCES students(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS fines (
     fine_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_key INT NOT NULL,
     student_id VARCHAR(32) NOT NULL,
     semester_id INT NULL,
     event_id INT NULL,
@@ -82,9 +87,13 @@ CREATE TABLE IF NOT EXISTS fines (
     assessed_amount DECIMAL(10, 2) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_fine (student_id, event_id, fine_type),
+    INDEX idx_fines_student_key (student_key),
+    INDEX idx_fines_student_event_type (student_key, event_id, fine_type),
     INDEX idx_fines_student (student_id),
     INDEX idx_fines_event (event_id),
-    INDEX idx_fines_semester (semester_id)
+    INDEX idx_fines_semester (semester_id),
+    CONSTRAINT fk_fines_student_key
+        FOREIGN KEY (student_key) REFERENCES students(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS attendance (
@@ -113,6 +122,7 @@ CREATE TABLE IF NOT EXISTS semester_enrollments (
 
 CREATE TABLE IF NOT EXISTS transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    student_key INT NOT NULL,
     student_id VARCHAR(32) NOT NULL,
     semester_id INT NULL,
     transaction_type VARCHAR(30) NOT NULL,
@@ -122,9 +132,12 @@ CREATE TABLE IF NOT EXISTS transactions (
     semester VARCHAR(20) NOT NULL,
     created_by VARCHAR(80) NOT NULL,
     transaction_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_transactions_student_key (student_key),
     INDEX idx_transactions_student (student_id),
     INDEX idx_transactions_date (transaction_date),
-    INDEX idx_transactions_semester (semester_id)
+    INDEX idx_transactions_semester (semester_id),
+    CONSTRAINT fk_transactions_student_key
+        FOREIGN KEY (student_key) REFERENCES students(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS transaction_balance_snapshots (
@@ -137,6 +150,7 @@ CREATE TABLE IF NOT EXISTS transaction_balance_snapshots (
 CREATE TABLE IF NOT EXISTS transaction_adjustments (
     adjustment_id INT AUTO_INCREMENT PRIMARY KEY,
     transaction_id INT NOT NULL,
+    student_key INT NOT NULL,
     student_id VARCHAR(32) NOT NULL,
     account_type VARCHAR(16) NOT NULL,
     amount_delta DECIMAL(10, 2) NOT NULL,
@@ -146,21 +160,26 @@ CREATE TABLE IF NOT EXISTS transaction_adjustments (
     fine_type VARCHAR(50) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_adjustments_transaction (transaction_id),
-    INDEX idx_adjustments_student_account (student_id, account_type),
+    INDEX idx_adjustments_student_account (student_key, account_type),
     INDEX idx_adjustments_balance_row (balance_row_id),
-    INDEX idx_adjustments_fine_identity (student_id, event_id, fine_type)
+    INDEX idx_adjustments_fine_identity (student_key, event_id, fine_type),
+    CONSTRAINT fk_adjustments_student_key
+        FOREIGN KEY (student_key) REFERENCES students(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS fine_payment_allocations (
     allocation_id INT AUTO_INCREMENT PRIMARY KEY,
     transaction_id INT NOT NULL,
     source_fine_id INT NOT NULL,
+    student_key INT NOT NULL,
     student_id VARCHAR(32) NOT NULL,
     event_id INT NOT NULL,
     fine_type VARCHAR(50) NOT NULL,
     amount_paid DECIMAL(10, 2) NOT NULL,
     UNIQUE KEY uq_fine_payment_source (transaction_id, source_fine_id),
-    INDEX idx_fine_payment_identity (student_id, event_id, fine_type)
+    INDEX idx_fine_payment_identity (student_key, event_id, fine_type),
+    CONSTRAINT fk_fine_payment_student_key
+        FOREIGN KEY (student_key) REFERENCES students(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS exemption_lists (

@@ -18,15 +18,15 @@ def student_dashboard():
     cursor.execute("SELECT * FROM students WHERE id=%s", (session["student"],))
     student = cursor.fetchone()
 
-    balance_key = student.get('student_id') or str(student['id']) if student else None
+    student_key = student['id'] if student else None
     cursor.execute(
-        "SELECT COALESCE(SUM(amount_due), 0) AS total_funds FROM student_funds WHERE student_id=%s",
-        (balance_key,),
+        "SELECT COALESCE(SUM(amount_due), 0) AS total_funds FROM student_funds WHERE student_key=%s",
+        (student_key,),
     )
     total_funds = float(cursor.fetchone()['total_funds'] or 0)
     cursor.execute(
-        "SELECT COALESCE(SUM(amount), 0) AS total_fines FROM fines WHERE student_id=%s",
-        (balance_key,),
+        "SELECT COALESCE(SUM(amount), 0) AS total_fines FROM fines WHERE student_key=%s",
+        (student_key,),
     )
     total_fines = float(cursor.fetchone()['total_fines'] or 0)
 

@@ -85,7 +85,7 @@ class PaymentsSemesterFilterTests(unittest.TestCase):
         self.assertIn("CONCAT(s.firstname, ' ', s.lastname) LIKE %s", self.connection.test_cursor.query)
         self.assertIn("t.payment_type LIKE %s", self.connection.test_cursor.query)
         self.assertIn("CAST(t.amount AS CHAR) LIKE %s", self.connection.test_cursor.query)
-        self.assertEqual(self.connection.test_cursor.params, ("%Gabriel%",) * 12)
+        self.assertEqual(self.connection.test_cursor.params, ("%Gabriel%",) * 13)
         self.assertLess(
             self.connection.test_cursor.query.index("CONCAT(s.firstname"),
             self.connection.test_cursor.query.index("LIMIT 50"),
@@ -101,7 +101,7 @@ class PaymentsSemesterFilterTests(unittest.TestCase):
         self.assertIn("t.semester_id=%s", self.connection.test_cursor.query)
         self.assertEqual(
             self.connection.test_cursor.params,
-            ("%Gabriel%",) * 12 + (
+            ("%Gabriel%",) * 13 + (
                 "2026-2027",
                 12,
                 "2026-2027",

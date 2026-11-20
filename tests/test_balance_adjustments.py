@@ -106,13 +106,13 @@ class BalanceAdjustmentTests(unittest.TestCase):
             (params for query, params in cursor.queries if "UPDATE student_funds" in query),
             None,
         )
-        self.assertEqual(update, (Decimal("55.00"), Decimal("55.00"), 17, "000123"))
+        self.assertEqual(update, (Decimal("55.00"), Decimal("55.00"), 17, 1))
         adjustment = next(
             params for query, params in cursor.queries
             if "INSERT INTO transaction_adjustments" in query
         )
         self.assertEqual(adjustment, (
-            91, "000123", "Funds", Decimal("-20.00"),
+            91, 1, "000123", "Funds", Decimal("-20.00"),
             "Already paid before system launch.", 17, None, None,
         ))
         self.assertTrue(connection.committed)
@@ -133,8 +133,8 @@ class BalanceAdjustmentTests(unittest.TestCase):
             params for query, params in cursor.queries
             if "INSERT INTO transaction_adjustments" in query
         )
-        self.assertEqual(adjustment[3], Decimal("45.00"))
-        self.assertEqual(adjustment[5], 207)
+        self.assertEqual(adjustment[4], Decimal("45.00"))
+        self.assertEqual(adjustment[6], 207)
         self.assertTrue(connection.committed)
 
     def test_fine_adjustment_updates_assessment_without_recording_collection(self):
@@ -157,18 +157,18 @@ class BalanceAdjustmentTests(unittest.TestCase):
         update = next(
             params for query, params in cursor.queries if "UPDATE fines" in query
         )
-        self.assertEqual(update, (Decimal("60.00"), Decimal("110.00"), 31, "000123"))
+        self.assertEqual(update, (Decimal("60.00"), Decimal("110.00"), 31, 1))
         adjustment = next(
             params for query, params in cursor.queries
             if "INSERT INTO transaction_adjustments" in query
         )
-        self.assertEqual(adjustment[3], Decimal("10.00"))
-        self.assertEqual(adjustment[6:], (8, "Absent"))
+        self.assertEqual(adjustment[4], Decimal("10.00"))
+        self.assertEqual(adjustment[6:], (31, 8, "Absent"))
         transaction = next(
             params for query, params in cursor.queries
             if "INSERT INTO transactions" in query
         )
-        self.assertEqual(transaction[2], "Fines")
+        self.assertEqual(transaction[3], "Fines")
         self.assertIn("'Adjustment'", next(
             query for query, _ in cursor.queries if "INSERT INTO transactions" in query
         ))

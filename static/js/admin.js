@@ -459,7 +459,7 @@ async function updateAmountField() {
     singleAmount.disabled = true;
     document.getElementById('maxAmount').textContent = 'Loading semester balance...';
     try {
-        const studentKey = currentStudent.payment_key || currentStudent.student_id;
+        const studentKey = currentStudent.lookup_key || currentStudent.student_id;
         const response = await fetch(
             `/api/student-balance/${encodeURIComponent(studentKey)}?semester_id=${encodeURIComponent(semesterId)}`
         );
@@ -512,7 +512,7 @@ async function updateCombinedAmountFields() {
     if (!fullAccounts.length || !semesterId || !currentStudent) return;
 
     try {
-        const studentKey = currentStudent.payment_key || currentStudent.student_id;
+        const studentKey = currentStudent.lookup_key || currentStudent.student_id;
         const response = await fetch(
             `/api/student-balance/${encodeURIComponent(studentKey)}?semester_id=${encodeURIComponent(semesterId)}`
         );
@@ -552,7 +552,8 @@ async function submitPayment() {
     const semesterSelect = document.getElementById('semesterId');
     const selectedTerm = semesterSelect.options[semesterSelect.selectedIndex];
     const formData = {
-        student_id: currentStudent.payment_key || currentStudent.student_id,
+        student_id: currentStudent.student_id,
+        student_key: currentStudent.student_key,
         transaction_type: document.getElementById('transactionType').value,
         semester_id: semesterSelect.value,
         academic_year: selectedTerm?.dataset.academicYear || '',

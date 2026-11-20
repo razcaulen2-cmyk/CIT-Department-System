@@ -7,6 +7,7 @@ def ensure_transaction_adjustments(cursor):
         CREATE TABLE IF NOT EXISTS transaction_adjustments (
             adjustment_id INT AUTO_INCREMENT PRIMARY KEY,
             transaction_id INT NOT NULL,
+            student_key INT NOT NULL,
             student_id VARCHAR(32) NOT NULL,
             account_type VARCHAR(16) NOT NULL,
             amount_delta DECIMAL(10, 2) NOT NULL,
@@ -16,9 +17,11 @@ def ensure_transaction_adjustments(cursor):
             fine_type VARCHAR(50) NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_adjustments_transaction (transaction_id),
-            INDEX idx_adjustments_student_account (student_id, account_type),
+            INDEX idx_adjustments_student_account (student_key, account_type),
             INDEX idx_adjustments_balance_row (balance_row_id),
-            INDEX idx_adjustments_fine_identity (student_id, event_id, fine_type)
+            INDEX idx_adjustments_fine_identity (student_key, event_id, fine_type),
+            CONSTRAINT fk_adjustments_student_key
+                FOREIGN KEY (student_key) REFERENCES students(id)
         ) ENGINE=InnoDB
         """
     )

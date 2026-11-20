@@ -18,8 +18,8 @@ class EnrollmentCursor:
         self.queries.append((query, params))
 
     def fetchone(self):
-        if "SELECT student_id FROM students" in self.query:
-            return ("0012",)
+        if "SELECT id, student_id FROM students" in self.query:
+            return (12, "0012")
         if "SELECT status FROM semester_enrollments" in self.query:
             return (self.existing_status,) if self.existing_status else None
         if "SELECT id FROM school_terms" in self.query:
@@ -69,7 +69,7 @@ class SemesterPaymentReconciliationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         ensure_snapshots.assert_called_once_with(connection.test_cursor)
         enroll.assert_called_once_with(connection.test_cursor, 2, 12, "0012")
-        reconcile.assert_called_once_with(connection.test_cursor, 2, "0012")
+        reconcile.assert_called_once_with(connection.test_cursor, 2, 12)
         self.assertTrue(connection.committed)
         self.assertTrue(connection.closed)
         with self.client.session_transaction() as session:

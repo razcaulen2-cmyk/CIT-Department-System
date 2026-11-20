@@ -25,7 +25,7 @@ def is_student_enrolled(cursor, semester_id, student_id):
         WHERE semester_id=%s AND student_id=%s AND status='enrolled'
         LIMIT 1
         """,
-        (semester_id, student_id),
+        (semester_id, student_key),
     )
     return cursor.fetchone() is not None
 
@@ -105,13 +105,19 @@ def get_student_semester_ids(student_id):
     return semester_ids
 
 
-def enroll_student(cursor, semester_id, student_id, payment_key, charge_fund=True):
+def enroll_student(
+    cursor,
+    semester_id,
+    student_key,
+    student_id_snapshot,
+    charge_fund=True,
+):
     cursor.execute(
         """
         INSERT IGNORE INTO semester_enrollments (semester_id, student_id, status)
         VALUES (%s, %s, 'enrolled')
         """,
-        (semester_id, student_id),
+        (semester_id, student_key),
     )
     if cursor.rowcount == 0:
         return False
@@ -126,10 +132,17 @@ def enroll_student(cursor, semester_id, student_id, payment_key, charge_fund=Tru
         cursor.execute(
             """
             INSERT INTO student_funds
-                (student_id, semester_id, amount_due, assessed_amount, paid_amount, is_semester_fund)
-            VALUES (%s, %s, %s, %s, 0, TRUE)
+                (student_key, student_id, semester_id, amount_due, assessed_amount,
+                 paid_amount, is_semester_fund)
+            VALUES (%s, %s, %s, %s, %s, 0, TRUE)
             """,
-            (payment_key, semester_id, fund_amount, fund_amount),
+            (
+                student_key,
+                student_id_snapshot,
+                semester_id,
+                fund_amount,
+                fund_amount,
+            ),
         )
     return True
 
@@ -137,7 +150,7 @@ def enroll_student(cursor, semester_id, student_id, payment_key, charge_fund=Tru
 def apply_unallocated_fund_transactions(
     cursor,
     semester_id,
-    payment_key,
+    student_key,
     transaction_ids=None,
 ):
     if transaction_ids is not None and not transaction_ids:
@@ -147,12 +160,12 @@ def apply_unallocated_fund_transactions(
         """
         SELECT id, amount_due
         FROM student_funds
-        WHERE student_id=%s AND semester_id=%s
+        WHERE student_key=%s AND semester_id=%s
             AND is_semester_fund=TRUE AND amount_due > 0
         ORDER BY id
         FOR UPDATE
         """,
-        (payment_key, semester_id),
+        (student_key, semester_id),
     )
     fund_rows = [
         {"id": row[0], "amount_due": Decimal(str(row[1] or 0))}
@@ -166,12 +179,12 @@ def apply_unallocated_fund_transactions(
         FROM transactions t
         JOIN transaction_balance_snapshots snapshot
             ON snapshot.transaction_id=t.id
-        WHERE t.student_id=%s AND t.semester_id=%s
+        WHERE t.student_key=%s AND t.semester_id=%s
             AND t.transaction_type='Funds'
             AND snapshot.transaction_type='Funds'
             AND JSON_LENGTH(snapshot.snapshot)=0
     """
-    params = [payment_key, semester_id]
+    params = [student_key, semester_id]
     if transaction_ids is not None:
         query += " AND t.id IN (" + ", ".join(["%s"] * len(transaction_ids)) + ")"
         params.extend(transaction_ids)
@@ -195,9 +208,9 @@ def apply_unallocated_fund_transactions(
                 """
                 UPDATE student_funds
                 SET amount_due=%s, paid_amount=paid_amount+%s
-                WHERE id=%s AND student_id=%s
+                WHERE id=%s AND student_key=%s
                 """,
-                (after_amount, applied, fund_row["id"], payment_key),
+                (after_amount, applied, fund_row["id"], student_key),
             )
             balance_snapshot.append({
                 "row_id": fund_row["id"],
