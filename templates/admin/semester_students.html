@@ -14,7 +14,13 @@
                 Dropping a student does not remove existing funds or fines.
             </p>
         </div>
-        <a href="/academic-terms" class="btn btn-outline-dark rounded-pill">Back to Semesters</a>
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-outline-warning rounded-pill"
+                    data-bs-toggle="modal" data-bs-target="#generateEnrollmentReportModal">
+                <i class="bi bi-file-earmark-bar-graph" aria-hidden="true"></i> Report Enrollment
+            </button>
+            <a href="/academic-terms" class="btn btn-outline-dark rounded-pill">Back to Semesters</a>
+        </div>
     </div>
 
     <form method="get" class="row g-3 align-items-end mb-3" id="semesterStudentFilters">
@@ -55,7 +61,7 @@
     </form>
 
     <div class="table-responsive">
-        <table class="table table-hover align-middle">
+        <table class="table table-hover align-middle" id="semesterStudentTable">
             <thead>
                 <tr>
                     <th>Student</th>
@@ -68,7 +74,7 @@
             </thead>
             <tbody>
                 {% for student in students %}
-                <tr>
+                <tr data-enrollment-status="{% if student.status == 'enrolled' %}enrolled{% else %}non-enrolled{% endif %}">
                     <td>{{ student.lastname }}, {{ student.firstname }}</td>
                     <td>{{ student.student_id or student.id }}</td>
                     <td>{{ student.course }}</td>
@@ -83,9 +89,13 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if not student.status %}
+                        {% if not student.status or student.status == 'dropped' %}
                         <form method="post" action="/academic-terms/{{ semester.id }}/students/{{ student.id }}/enroll">
+                            {% if student.status == 'dropped' %}
+                            <button type="submit" class="btn btn-sm btn-outline-primary rounded-pill">Re-enroll</button>
+                            {% else %}
                             <button type="submit" class="btn btn-sm btn-outline-primary rounded-pill">Enroll</button>
+                            {% endif %}
                         </form>
                         {% elif student.status == 'enrolled' %}
                         <form method="post" action="/academic-terms/{{ semester.id }}/students/{{ student.id }}/drop"
@@ -112,4 +122,262 @@
         </table>
     </div>
 </div>
+
+<div class="modal fade" id="generateEnrollmentReportModal" tabindex="-1"
+     aria-labelledby="enrollmentReportModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <p class="eyebrow mb-1">ENROLLMENT</p>
+                    <h5 class="modal-title" id="enrollmentReportModalTitle">Report Enrollment</h5>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="enrollmentReportForm" class="enrollment-report-toolbar">
+                <div id="enrollmentReportControls">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-lg-6">
+                            <label for="enrollmentReportType" class="form-label">Student group</label>
+                            <select class="form-select" id="enrollmentReportType" name="status" required>
+                                <option value="enrolled">Enrolled students</option>
+                                <option value="non-enrolled">Non-enrolled students</option>
+                            </select>
+                        </div>
+                        <div class="col-lg-3">
+                            <button type="submit" class="btn btn-dark rounded-pill px-4 w-100">
+                                <i class="bi bi-file-earmark-bar-graph" aria-hidden="true"></i> Generate Report
+                            </button>
+                        </div>
+                        <div class="col-lg-3">
+                            <button type="button" class="btn btn-outline-warning rounded-pill px-4 w-100"
+                                    id="printEnrollmentReportButton" disabled>
+                                <i class="bi bi-printer" aria-hidden="true"></i> Print
+                            </button>
+                        </div>
+                    </div>
+                    <p class="form-text mb-0 mt-2">
+                        The report includes students matching the search and filters on this page.
+                        Dropped students are counted as non-enrolled.
+                    </p>
+                </div>
+            </form>
+            <section id="enrollmentReportPreview" class="modal-body enrollment-report-preview"
+                     aria-live="polite" aria-label="Generated enrollment report"></section>
+            <div class="modal-footer enrollment-report-modal-footer">
+                <button type="button" class="btn btn-dark rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    #generateEnrollmentReportModal .modal-content {
+        max-height: calc(100vh - 3.5rem);
+    }
+
+    .enrollment-report-toolbar {
+        flex: 0 0 auto;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--line-soft);
+        background: var(--panel);
+    }
+
+    .enrollment-report-count {
+        font-size: 1.1rem;
+        color: var(--line);
+    }
+
+    .enrollment-report-preview {
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: auto;
+    }
+
+    .enrollment-report-preview h3 {
+        color: var(--text);
+    }
+
+    .enrollment-report-table {
+        --bs-table-color: var(--text);
+        --bs-table-bg: #111;
+        --bs-table-border-color: var(--line-soft);
+        --bs-table-striped-color: var(--text);
+        --bs-table-striped-bg: rgba(212, 175, 55, 0.035);
+        --bs-table-hover-color: var(--text);
+        --bs-table-hover-bg: rgba(212, 175, 55, 0.08);
+        margin-bottom: 0;
+        border: 1px solid var(--line-soft);
+    }
+
+    .enrollment-report-table thead th {
+        background: #17150f;
+        color: var(--line);
+        border-bottom-color: var(--line);
+        white-space: nowrap;
+    }
+
+    .enrollment-report-table th,
+    .enrollment-report-table td {
+        vertical-align: middle;
+    }
+
+    .enrollment-report-table td:first-child {
+        min-width: 14rem;
+        overflow-wrap: anywhere;
+    }
+
+    .enrollment-report-table tbody tr {
+        break-inside: avoid;
+    }
+
+    @media (max-width: 575.98px) {
+        #generateEnrollmentReportModal .modal-dialog {
+            margin: 0.5rem;
+        }
+
+        #generateEnrollmentReportModal .modal-content {
+            max-height: calc(100vh - 1rem);
+        }
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('enrollmentReportForm');
+    const typeSelect = document.getElementById('enrollmentReportType');
+    const preview = document.getElementById('enrollmentReportPreview');
+    const printButton = document.getElementById('printEnrollmentReportButton');
+    const modal = document.getElementById('generateEnrollmentReportModal');
+
+    if (!form || !typeSelect || !preview || !printButton || !modal) return;
+
+    form.addEventListener('submit', function(event) {
+        event.preventDefault();
+
+        const status = typeSelect.value;
+        const reportTitle = status === 'enrolled' ? 'Enrolled Students' : 'Non-enrolled Students';
+        const students = Array.from(document.querySelectorAll(
+            '#semesterStudentTable tbody tr[data-enrollment-status]'
+        )).filter((row) => row.dataset.enrollmentStatus === status);
+
+        const heading = document.createElement('div');
+        heading.className = 'mb-3';
+        const title = document.createElement('h3');
+        title.className = 'h5 mb-2';
+        title.textContent = reportTitle;
+        const semester = document.createElement('p');
+        semester.className = 'mb-1';
+        semester.textContent = {{ (semester.academic_year ~ ' · ' ~ semester.semester)|tojson }};
+        const count = document.createElement('p');
+        count.className = 'enrollment-report-count mb-0';
+        const countLabel = document.createElement('strong');
+        countLabel.textContent = 'Student Count: ';
+        count.append(countLabel, document.createTextNode(String(students.length)));
+        heading.append(title, semester, count);
+
+        const table = document.createElement('table');
+        table.className = 'table table-striped table-hover align-middle enrollment-report-table';
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        ['Student', 'Student ID', 'Course', 'Year', 'Status'].forEach((label) => {
+            const cell = document.createElement('th');
+            cell.scope = 'col';
+            cell.textContent = label;
+            headerRow.appendChild(cell);
+        });
+        thead.appendChild(headerRow);
+        const tbody = document.createElement('tbody');
+        students.forEach((row) => {
+            const cells = Array.from(row.cells);
+            const reportRow = document.createElement('tr');
+            [
+                cells[0].textContent.trim(),
+                cells[1].textContent.trim(),
+                cells[2].textContent.trim(),
+                cells[3].textContent.trim(),
+                status === 'enrolled' ? 'Enrolled' : 'Non-enrolled'
+            ].forEach((value) => {
+                const cell = document.createElement('td');
+                cell.textContent = value;
+                reportRow.appendChild(cell);
+            });
+            tbody.appendChild(reportRow);
+        });
+        if (students.length === 0) {
+            const emptyRow = document.createElement('tr');
+            const emptyCell = document.createElement('td');
+            emptyCell.colSpan = 5;
+            emptyCell.className = 'text-center text-muted';
+            emptyCell.textContent = 'No students found for this report.';
+            emptyRow.appendChild(emptyCell);
+            tbody.appendChild(emptyRow);
+        }
+        table.append(thead, tbody);
+        preview.replaceChildren(heading, table);
+        printButton.disabled = false;
+    });
+
+    printButton.addEventListener('click', function() {
+        if (!preview.childElementCount) return;
+
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            window.alert('Allow pop-ups for this site to print the enrollment report.');
+            return;
+        }
+
+        const report = preview.cloneNode(true);
+        const printDocument = printWindow.document;
+        printDocument.title = 'Enrollment Report';
+        printDocument.head.innerHTML = '';
+        const charset = printDocument.createElement('meta');
+        charset.setAttribute('charset', 'utf-8');
+        const viewport = printDocument.createElement('meta');
+        viewport.name = 'viewport';
+        viewport.content = 'width=device-width, initial-scale=1';
+        const style = printDocument.createElement('style');
+        style.textContent = `
+            @page { size: landscape; margin: 12mm; }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0;
+                color: #000;
+                background: #fff;
+                font: 12px Arial, Helvetica, sans-serif;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            h3 { margin: 0 0 8px; color: #000; font-size: 18px; }
+            p { margin: 0 0 6px; color: #000; }
+            .enrollment-report-count { margin-bottom: 12px; font-size: 14px; }
+            table { width: 100%; border-collapse: collapse; color: #000; }
+            thead { display: table-header-group; }
+            tr { break-inside: avoid; }
+            th, td {
+                padding: 6px 8px;
+                border: 1px solid #777;
+                color: #000;
+                background: #fff;
+                opacity: 1;
+                text-align: left;
+            }
+            th { font-weight: 700; }
+        `;
+        printDocument.head.append(charset, viewport, style);
+        printDocument.body.replaceChildren(report);
+        printDocument.close();
+        window.setTimeout(function() {
+            printWindow.focus();
+            printWindow.print();
+        }, 250);
+    });
+
+    modal.addEventListener('hidden.bs.modal', function() {
+        form.reset();
+        preview.replaceChildren();
+        printButton.disabled = true;
+    });
+});
+</script>
 {% endblock %}

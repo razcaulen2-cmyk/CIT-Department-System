@@ -9,6 +9,7 @@ class SemesterStudentsCursor:
         self.query = ""
         self.params = ()
         self.executions = []
+        self.student_status = "enrolled"
 
     def execute(self, query, params=None):
         self.query = query
@@ -38,7 +39,7 @@ class SemesterStudentsCursor:
                 "lastname": "Student",
                 "course": "BSCS",
                 "year_level": 1,
-                "status": "enrolled",
+                "status": self.student_status,
                 "enrolled_at": None,
                 "dropped_at": None,
             }
@@ -111,6 +112,39 @@ class SemesterStudentsFilterTests(unittest.TestCase):
         self.assertEqual(params, (2,))
         self.assertIn(b"All courses", response.data)
         self.assertIn(b"All years", response.data)
+
+    def test_dropped_student_can_be_reenrolled_from_the_students_list(self):
+        self.connection.test_cursor.student_status = "dropped"
+
+        response = self.get_students()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            b'action="/academic-terms/2/students/12/enroll"',
+            response.data,
+        )
+        self.assertIn(b">Re-enroll</button>", response.data)
+        self.assertNotIn(b"Enrollment retained", response.data)
+        self.assertIn(b'data-enrollment-status="non-enrolled"', response.data)
+
+    def test_enrollment_report_modal_offers_both_groups_and_printable_count(self):
+        response = self.get_students()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Report Enrollment", response.data)
+        self.assertIn(b'value="enrolled">Enrolled students</option>', response.data)
+        self.assertIn(b'value="non-enrolled">Non-enrolled students</option>', response.data)
+        self.assertIn(b'id="enrollmentReportPreview"', response.data)
+        self.assertIn(b'id="printEnrollmentReportButton"', response.data)
+        self.assertIn(b"Student Count: ", response.data)
+        self.assertIn(b'class="enrollment-report-toolbar"', response.data)
+        self.assertIn(b"className = 'table table-striped table-hover align-middle enrollment-report-table'", response.data)
+        self.assertNotIn(b"position: sticky;\n        top: -1rem", response.data)
+        self.assertNotIn(b".enrollment-report-table thead th {\n        position: sticky", response.data)
+        self.assertNotIn(b"modal-dialog-scrollable", response.data)
+        self.assertIn(b"const printWindow = window.open('', '_blank')", response.data)
+        self.assertIn(b"color: #000;", response.data)
+        self.assertIn(b"printWindow.print()", response.data)
 
 
 if __name__ == "__main__":
