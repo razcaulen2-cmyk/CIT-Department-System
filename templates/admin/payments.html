@@ -199,12 +199,33 @@ document.addEventListener('DOMContentLoaded', function () {
                 <form id="transactionReportForm" method="get" action="{{ url_for('admin.transaction_report') }}">
                     <div class="transaction-report-controls">
                         <div>
+                            <label for="transactionReportCalendarDate" class="form-label">Calendar date</label>
+                            <input class="form-control" type="date" id="transactionReportCalendarDate" name="calendar_date">
+                        </div>
+                        <div>
                             <label for="transactionReportPeriod" class="form-label">Report period</label>
                             <select class="form-select" id="transactionReportPeriod" name="period" required>
                                 <option value="day">Day &mdash; today</option>
                                 <option value="week">Week &mdash; this week</option>
                                 <option value="month">Month &mdash; this month</option>
                                 <option value="overall">Overall &mdash; all transactions</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="transactionReportSemester" class="form-label">Academic Term and Semester</label>
+                            <select class="form-select" id="transactionReportSemester" name="semester_id">
+                                <option value="">All terms and semesters</option>
+                                {% for term in terms %}
+                                <option value="{{ term.id }}">{{ term.academic_year }} &mdash; {{ term.semester }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="transactionReportType" class="form-label">Transaction type</label>
+                            <select class="form-select" id="transactionReportType" name="transaction_type">
+                                <option value="">All transaction types</option>
+                                <option value="Funds">Funds</option>
+                                <option value="Fines">Fines</option>
                             </select>
                         </div>
                         <button type="submit" class="btn btn-dark rounded-pill px-4" id="generateTransactionReportButton">
@@ -513,7 +534,8 @@ document.addEventListener('DOMContentLoaded', function () {
 }
 
 .transaction-report-controls {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
     align-items: end;
     gap: 14px;
     padding: 18px;
@@ -523,7 +545,7 @@ document.addEventListener('DOMContentLoaded', function () {
 }
 
 .transaction-report-controls > div {
-    flex: 1;
+    min-width: 0;
 }
 
 .transaction-report-controls .form-label {
@@ -775,8 +797,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
 @media (max-width: 575.98px) {
     .transaction-report-controls {
-        align-items: stretch;
-        flex-direction: column;
+        grid-template-columns: 1fr;
         padding: 14px;
     }
 

@@ -1430,6 +1430,30 @@ def transaction_report():
     if period not in {"day", "week", "month", "overall"}:
         return "Choose a valid transaction report period.", 400
 
+    calendar_date_value = request.args.get("calendar_date", "").strip()
+    calendar_date = None
+    if calendar_date_value:
+        try:
+            calendar_date = date.fromisoformat(calendar_date_value)
+        except ValueError:
+            return "Choose a valid calendar date.", 400
+        if calendar_date.isoformat() != calendar_date_value:
+            return "Choose a valid calendar date.", 400
+
+    semester_id_value = request.args.get("semester_id", "").strip()
+    semester_id = None
+    if semester_id_value:
+        try:
+            semester_id = int(semester_id_value)
+        except ValueError:
+            return "Choose a valid academic term and semester.", 400
+        if semester_id < 1:
+            return "Choose a valid academic term and semester.", 400
+
+    transaction_type = request.args.get("transaction_type", "").strip()
+    if transaction_type not in {"", "Funds", "Fines"}:
+        return "Choose a valid transaction type.", 400
+
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -1438,7 +1462,11 @@ def transaction_report():
         report_clock = cursor.fetchone()
         report_date = report_clock["report_date"]
 
-        if period == "day":
+        if calendar_date is not None:
+            start_date = calendar_date
+            end_date = start_date + timedelta(days=1)
+            period_label = f"Calendar date - {start_date.strftime('%B %d, %Y')}"
+        elif period == "day":
             start_date = report_date
             end_date = start_date + timedelta(days=1)
             period_label = f"Day - {start_date.strftime('%B %d, %Y')}"
@@ -1487,12 +1515,37 @@ def transaction_report():
             LEFT JOIN students s
                 ON t.student_id = COALESCE(s.student_id, CAST(s.id AS CHAR))
         """
-        params = ()
+        filters = []
+        params = []
         if start_date is not None:
-            query += " WHERE t.transaction_date >= %s AND t.transaction_date < %s"
-            params = (start_date, end_date)
+            filters.append("t.transaction_date >= %s AND t.transaction_date < %s")
+            params.extend([start_date, end_date])
+        if semester_id is not None:
+            filters.append(
+                """
+                (
+                    t.semester_id=%s
+                    OR (
+                        t.semester_id IS NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM school_terms st
+                            WHERE st.id=%s
+                                AND st.academic_year=t.academic_year
+                                AND st.semester=t.semester
+                        )
+                    )
+                )
+                """
+            )
+            params.extend([semester_id, semester_id])
+        if transaction_type:
+            filters.append("t.transaction_type=%s")
+            params.append(transaction_type)
+        if filters:
+            query += " WHERE " + " AND ".join(filters)
         query += " ORDER BY t.transaction_date, t.id"
-        cursor.execute(query, params)
+        cursor.execute(query, tuple(params))
         transactions = cursor.fetchall()
 
         semester_labels = set()
