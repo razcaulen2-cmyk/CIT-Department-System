@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app_factory import create_app
+from services.database_backup import DatabaseBackupError
 
 
 class DatabaseBackupRouteTests(unittest.TestCase):
@@ -14,16 +15,57 @@ class DatabaseBackupRouteTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["admin"] = True
 
-    def test_backup_route_returns_a_download(self):
+    def test_backup_route_confirms_creation_and_shows_download_link(self):
         with tempfile.TemporaryDirectory() as directory:
             backup = Path(directory) / "department_system_20261019_120000_a1b2c3d4.sql"
             backup.write_text("-- backup", encoding="ascii")
             with patch("routes.admin.create_database_backup", return_value=backup):
-                response = self.client.get("/database/backup")
-                self.assertEqual(response.status_code, 200)
-                self.assertIn("attachment;", response.headers["Content-Disposition"])
-                self.assertTrue(response.data.startswith(b"-- backup"))
-                response.close()
+                with patch("routes.admin.get_database_backup_path", return_value=backup):
+                    response = self.client.get("/database/backup", follow_redirects=True)
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"Database backup created successfully", response.data)
+            self.assertIn(backup.name.encode("ascii"), response.data)
+            self.assertIn(b"/database/backups/", response.data)
+            self.assertIn(f'download="{backup.name}"'.encode("ascii"), response.data)
+            self.assertIn(b"showSaveFilePicker", response.data)
+            self.assertIn(b"response.body.pipeTo(writable)", response.data)
+
+    def test_saved_backup_route_returns_a_download(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backup = Path(directory) / "department_system_20261019_120000_a1b2c3d4.sql"
+            backup.write_text("-- backup", encoding="ascii")
+            with patch("routes.admin.get_database_backup_path", return_value=backup):
+                response = self.client.get(
+                    f"/database/backups/{backup.name}",
+                    headers={"If-None-Match": "*"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("attachment;", response.headers["Content-Disposition"])
+            self.assertEqual(response.mimetype, "application/octet-stream")
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            self.assertTrue(response.data.startswith(b"-- backup"))
+            response.close()
+
+    def test_backup_failure_is_shown_after_redirect(self):
+        with patch(
+            "routes.admin.create_database_backup",
+            side_effect=DatabaseBackupError("MySQL client is unavailable"),
+        ):
+            response = self.client.get("/database/backup", follow_redirects=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Database backup failed: MySQL client is unavailable", response.data)
+
+    def test_backup_page_explains_download_and_shows_progress_feedback(self):
+        response = self.client.get("/upload-csv")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"databaseBackupStatus", response.data)
+        self.assertIn(b"role=\"status\"", response.data)
+        self.assertIn(b"The backup is saved on the server", response.data)
+        self.assertIn(b"press Ctrl+J", response.data)
 
 
     def test_restore_rejects_a_missing_or_invalid_csrf_token(self):

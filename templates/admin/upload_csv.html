@@ -140,10 +140,13 @@ CRISHA MAE ABOGADA ABIADO,1,BSCS,250.00</pre>
                 <strong>Latest backup available</strong>
                 <span>{{ backup_filename }}</span>
             </span>
-            <a class="btn btn-sm btn-outline-warning rounded-pill" href="{{ url_for('admin.download_saved_database_backup', filename=backup_filename) }}">
+            <a id="databaseBackupDownload" class="btn btn-sm btn-outline-warning rounded-pill"
+               href="{{ url_for('admin.download_saved_database_backup', filename=backup_filename) }}"
+               download="{{ backup_filename }}">
                 <i class="bi bi-download" aria-hidden="true"></i> Download
             </a>
         </div>
+        <p id="databaseBackupDownloadStatus" class="csv-database-footnote" role="status" aria-live="polite" hidden></p>
         {% endif %}
 
         <div class="csv-database-grid">
@@ -155,13 +158,14 @@ CRISHA MAE ABOGADA ABIADO,1,BSCS,250.00</pre>
                         <p>Save the complete database—including its schema and records—as a MySQL file.</p>
                     </div>
                 </div>
-                <form method="get" action="{{ url_for('admin.download_database_backup') }}">
+                <form id="databaseBackupForm" method="get" action="{{ url_for('admin.download_database_backup') }}">
                     <button type="submit" class="btn btn-dark rounded-pill csv-database-action">
                         <i class="bi bi-download" aria-hidden="true"></i>
-                        Backup Database
+                        Create Backup
                     </button>
                 </form>
-                <p class="csv-database-footnote"><i class="bi bi-hdd" aria-hidden="true"></i> A copy is also kept in the server’s backup folder.</p>
+                <p id="databaseBackupStatus" class="csv-database-footnote" role="status" aria-live="polite" hidden></p>
+                <p class="csv-database-footnote"><i class="bi bi-hdd" aria-hidden="true"></i> The backup is saved on the server. After it is created, use Download to save the SQL file to this device.</p>
             </article>
 
             <article class="csv-database-card csv-database-restore">
@@ -199,5 +203,55 @@ CRISHA MAE ABOGADA ABIADO,1,BSCS,250.00</pre>
         </div>
     </section>
 </div>
+
+<script>
+document.getElementById("databaseBackupForm").addEventListener("submit", function () {
+    const status = document.getElementById("databaseBackupStatus");
+    status.textContent = "Creating your backup. This may take a few minutes; a Download button will appear when it is ready.";
+    status.hidden = false;
+});
+
+const savedBackupLink = document.getElementById("databaseBackupDownload");
+if (savedBackupLink) {
+    savedBackupLink.addEventListener("click", async function (event) {
+        const status = document.getElementById("databaseBackupDownloadStatus");
+        status.hidden = false;
+
+        if (typeof window.showSaveFilePicker !== "function") {
+            status.textContent = "Your backup download is starting. If it does not appear, press Ctrl+J to check Chrome Downloads.";
+            return;
+        }
+
+        event.preventDefault();
+        try {
+            status.textContent = "Choose where to save your database backup.";
+            const fileHandle = await window.showSaveFilePicker({
+                suggestedName: savedBackupLink.getAttribute("download")
+            });
+            const response = await fetch(savedBackupLink.href, {
+                credentials: "same-origin",
+                cache: "no-store"
+            });
+            if (response.redirected) {
+                throw new Error("Your admin session expired. Sign in again and retry the download.");
+            }
+            if (!response.ok) {
+                throw new Error(`The server could not download the backup (HTTP ${response.status}).`);
+            }
+            if (!(response.headers.get("Content-Disposition") || "").toLowerCase().includes("attachment")) {
+                throw new Error("The server did not return a backup file. Reload the page and retry.");
+            }
+
+            const writable = await fileHandle.createWritable();
+            await response.body.pipeTo(writable);
+            status.textContent = "Backup saved successfully.";
+        } catch (error) {
+            status.textContent = error.name === "AbortError"
+                ? "Download cancelled."
+                : `Could not save the backup: ${error.message}`;
+        }
+    });
+}
+</script>
 
 {% endblock %}

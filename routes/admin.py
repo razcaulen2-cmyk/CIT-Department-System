@@ -1817,12 +1817,11 @@ def download_database_backup():
         return redirect("/upload-csv")
 
     session["latest_database_backup"] = backup_path.name
-    return send_file(
-        backup_path,
-        as_attachment=True,
-        download_name=backup_path.name,
-        mimetype="application/sql",
+    flash(
+        "Database backup created successfully. Use Download below to save it to this device.",
+        "success",
     )
+    return redirect("/upload-csv")
 
 
 @admin_bp.route("/database/backups/<filename>", methods=["GET"])
@@ -1832,12 +1831,17 @@ def download_saved_database_backup(filename):
         backup_path = get_database_backup_path(filename)
     except (DatabaseBackupError, OSError) as error:
         return str(error), 404
-    return send_file(
+    response = send_file(
         backup_path,
         as_attachment=True,
         download_name=backup_path.name,
-        mimetype="application/sql",
+        mimetype="application/octet-stream",
+        conditional=False,
+        etag=False,
+        max_age=0,
     )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @admin_bp.route("/database/restore", methods=["POST"])

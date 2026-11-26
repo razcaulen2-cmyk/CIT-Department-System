@@ -156,6 +156,26 @@ def foreign_key_exists(cursor, table_name, constraint_name):
     return cursor.fetchone() is not None
 
 
+def drop_legacy_student_id_foreign_keys(cursor):
+    placeholders = ", ".join(["%s"] * len(FINANCIAL_TABLES))
+    cursor.execute(
+        f"""
+        SELECT DISTINCT TABLE_NAME, CONSTRAINT_NAME
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA=DATABASE()
+          AND TABLE_NAME IN ({placeholders})
+          AND COLUMN_NAME='student_id'
+          AND REFERENCED_TABLE_NAME='students'
+          AND REFERENCED_COLUMN_NAME='student_id'
+        """,
+        FINANCIAL_TABLES,
+    )
+    for table_name, constraint_name in cursor.fetchall():
+        cursor.execute(
+            f"ALTER TABLE `{table_name}` DROP FOREIGN KEY `{constraint_name}`"
+        )
+
+
 def make_backup(cursor, suffix):
     backups = []
     for table_name in FINANCIAL_TABLES:
@@ -393,6 +413,8 @@ def apply_migration(cursor):
 
     for table_name in FINANCIAL_TABLES:
         ensure_not_null_student_key(cursor, table_name)
+
+    drop_legacy_student_id_foreign_keys(cursor)
 
     for table_name, index_name, columns, unique in INDEXES:
         ensure_index(cursor, table_name, index_name, columns, unique)
